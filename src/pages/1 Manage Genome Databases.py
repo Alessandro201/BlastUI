@@ -2,7 +2,9 @@ import streamlit as st
 import shutil
 from io import StringIO
 from pathlib import Path
-from scripts.blast_utilities import *
+from scripts.makeblastdb import *
+from scripts.utils import *
+from multiprocessing import cpu_count
 
 
 def save_uploads_to_disk(genomes: list[GenomeData], location: Path):
@@ -17,7 +19,7 @@ def read_genomes(uploaded_files) -> list[GenomeData]:
         # To convert to a string based IO
         genome_io = StringIO(uploaded_file.getvalue().decode("utf-8"))
         genome_str = genome_io.read()
-        genome = GenomeData(genome_name=uploaded_file.name, genome_str=genome_str)
+        genome = GenomeData(name=uploaded_file.name, genome=genome_str)
         genomes.append(genome)
 
     return genomes
@@ -36,6 +38,8 @@ def set_sidebar():
                      'before creating the blast database. This will remove many partial contigs which only '
                      'introduce noise in the blast results. ')
 
+    st.sidebar.subheader('Contigs filtering options')
+
     options['remove_small_contigs'] = False
     if st.sidebar.checkbox('Remove small contigs', key='remove_small_contigs', value=True):
         min_length = st.sidebar.number_input('Minimum contig length',
@@ -45,12 +49,10 @@ def set_sidebar():
         options['min_length'] = min_length
 
     st.sidebar.subheader('Blast database options')
-    binaries = st.sidebar.radio('Use the blast binaries:', ('downloaded with BlastUI', 'in PATH'))
 
-    if binaries == 'downloaded with BlastUI':
-        options['binaries'] = 'BlastUI'
-    else:
-        options['binaries'] = 'PATH'
+    options['threads'] = st.sidebar.number_input('Threads to use: ',
+                                                 min_value=1, max_value=cpu_count(),
+                                                 value=round(cpu_count() / 2), step=1)
 
     dbtype = st.sidebar.radio('Database type:', ('Nucleotides', 'Proteins'))
     if dbtype == 'Nucleotides':
@@ -74,7 +76,7 @@ def main():
              'This process will take a few minutes, depending on the number of genomes and their size, '
              'and it will only be done once but it will greatly speed up any blast you perform.')
     st.write('The database will be saved locally and no file will be shared online. As a matter of fact, '
-             'this application works entirely offline.')
+             'the application works entirely offline, apart from the first download of blast executables.')
 
     create_tab, manage_tab = st.tabs(['Create blast database', 'Manage blast databases'])
 
@@ -93,32 +95,28 @@ def main():
             st.session_state['new_database'] = st.text_input('Database name', value='my_database')
 
             if st.button('Create blast database'):
-                with st.empty():
-                    # Filter genomes
-                    genomes = st.session_state['genomes']
-                    if st.session_state['remove_small_contigs']:
-                        with st.spinner('Removing small contigs...'):
-                            genomes: list[GenomeData] = remove_small_contigs(genomes, options['min_length'])
 
-                    # Generating multifasta file to make blast db
-                    with st.spinner('Generating multifasta file for makeblastdb...'):
-                        multifasta_path = Path('tempData/multifasta.fasta')
-                        make_multifasta_for_blastdb(genomes, multifasta_path)
+                pbar = st.progress(0)
+                binaries_in = read_configs()['BLAST']['use_executables_in']
+                makeblastdb_exec = get_program_path('makeblastdb', binaries_in=binaries_in)
 
-                    # Creating blast database
-                    with st.spinner('Creating blast database...'):
-                        db_path = Path('BlastDatabases', st.session_state['new_database'], 'blastdb')
-                        db_path.parent.mkdir(parents=True, exist_ok=True)
-                        makeblastdb_exec = get_program_path('makeblastdb', binaries_in=options['binaries'])
+                makeblastdb = MakeBlastDB(genomes=st.session_state['genomes'],
+                                          db_name=st.session_state['new_database'],
+                                          dbtype=options['dbtype'],
+                                          threads=options['threads'],
+                                          pbar=pbar,
+                                          makeblastdb_exec=makeblastdb_exec)
 
-                        make_blast_db(multifasta_path,
-                                      database=db_path,
-                                      title=st.session_state['new_database'],
-                                      dbtype=options['dbtype'],
-                                      makeblastdb_exec=makeblastdb_exec)
+                # Filter genomes
+                if st.session_state['remove_small_contigs']:
+                    makeblastdb.remove_small_contigs(options['min_length'])
 
-                        shutil.rmtree(multifasta_path.parent)
+                # Generating multifasta file to make blast db
+                makeblastdb.generate_multifasta()
 
+                # Creating blast database
+                with st.spinner('Creating blast database...'):
+                    makeblastdb.run()
 
                 st.success('Done!')
 
@@ -154,8 +152,6 @@ def main():
 
             st.warning(f"The database {st.session_state['database']} will be deleted!")
             st.button('Confirm', on_click=delete_database)
-
-            st.success('Done!')
 
         if 'database_deleted' in st.session_state:
             st.success('Done!')

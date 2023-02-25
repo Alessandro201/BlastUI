@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Union, Optional
+import streamlit as st
 import pandas as pd
 import json
 
@@ -64,11 +65,10 @@ class BlastMatch:
                              f"\tScore = {round(self.bit_score)} bits ({self.score}), E-value = {self.evalue :.1g} \n" \
                              f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
                              f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%) \n" \
-                             f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positive}%), " \
+                             f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
                              f"\tMismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
                              f"Gaps = {self.s_gap}/{self.align_len} ({self.perc_gaps}%)\n" \
                              f"\tFrame = {self.s_frame}\n\n"
-
 
         elif self.program == 'blastn':
             alignment_text = f">{self.query_title} \n" \
@@ -78,7 +78,8 @@ class BlastMatch:
                              f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%) \n" \
                              f"\tMismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
                              f"Gaps = {self.s_gap}/{self.align_len} ({self.perc_gaps}%)\n" \
-                             f"\tStrand = {self.query_strand}/{self.hit_strand}\n\n"
+                             f"\tStrand = {self.q_orient}/{self.s_orient}\n\n"
+
         else:
             alignment_text = f">{self.query_title} \n"
 
@@ -92,7 +93,10 @@ class BlastMatch:
             prot_to_dna = 1
 
         # The number of padding spaces for the indexes in the alignment depends on the number of digits
-        pad = max(len(str(self.s_start)), len(str(self.q_start)))
+        pad = max(len(str(self.s_start)),
+                  len(str(self.q_start)),
+                  len(str(self.s_end)),
+                  len(str(self.q_end)))
 
         index = 0
         query_gap = 0
@@ -101,8 +105,8 @@ class BlastMatch:
         prev_seq_gap = 0
         while index < len(self.sseq):
 
-            query_gap += query[index:index + 60].count('-')
-            seq_gap += sequence[index:index + 60].count('-')
+            query_gap += self.qseq[index:index + 60].count('-')
+            seq_gap += self.sseq[index:index + 60].count('-')
 
             # Query
             if self.q_orient == 'Plus':
@@ -134,7 +138,7 @@ class BlastMatch:
             prev_seq_gap = seq_gap
 
             alignment_text += f"Query  {q_start :{pad}}  {self.qseq[index:index + 60]}  {q_end :{pad}}\n" \
-                              f"       {' ' * pad}  {midline[index:index + 60]} \n" \
+                              f"       {' ' * pad}  {self.midline[index:index + 60]} \n" \
                               f"Sbjct  {s_start :{pad}}  {self.sseq[index:index + 60]}  {s_end :{pad}}\n\n"
             index += 60
 
@@ -172,12 +176,22 @@ class BlastResponse:
     def parse_json(self):
         index = 0
         for report in self.reports:
-            query_title: str = report['results']['search']['query_title']
+            # If you don't insert a header in the query sequence, there won't be a query_title
+            try:
+                query_title: str = report['results']['search']['query_title']
+            except KeyError:
+                query_title: str = report['results']['search']['query_id']
+
             query_len: int = report['results']['search']['query_len']
+
+            if "message" in report['results']['search']:
+                st.warning(f"BLAST returned the following message: {report['results']['search']['message']}")
+                st.json(self.json)
+                st.stop()
 
             for hits in report['results']['search']['hits']:
                 for hit in hits['hsps']:
-                    hit['index'] = index
+                    hit['id'] = index
                     hit['query_title'] = query_title
                     hit['query_len'] = query_len
                     strain_node = hits['description'][0]['accession']
@@ -188,6 +202,9 @@ class BlastResponse:
                     index += 1
 
     def alignments(self, indexes: Optional[list[int]] = None):
+        if indexes is None:
+            indexes = range(len(self.matches))
+
         for index in indexes:
             yield self.matches[index].alignment()
 

@@ -19,7 +19,7 @@ def json_to_df(json_file: Union[str, Path]) -> pd.DataFrame:
 
     data = get_matches(data)
     df = pd.DataFrame.from_dict(data)
-    return data
+    return df
 
 
 def read_json(json_file: Union[str, Path]) -> dict:
@@ -510,33 +510,3 @@ def get_matches_by_index(data, match_indexes):
                     matches[list_i] = match
 
     return matches
-
-
-if __name__ == '__main__':
-
-    # data = read_json('../Analysis/tblastn_results.json')
-    # data = add_query_length_to_matches(data)
-    # data = filter_results(data, identity=90, query_cov=60)
-    # table = generate_tblastn_tsv(data)
-    # write_table(table, HEADER_TBLASTN, '../Analysis/tblastn_results.tsv')
-    # print_tblastn_alignments(data)
-
-    # query_title = 'treP PTS system trehalose-specific EIIBC component'
-    # subject_id = 'Sta_69_NODE_30'
-    #
-
-    data = read_json('../Analysis/blastn_results.json')
-    data = add_query_length_to_matches(data)
-    # # data = filter_results(data, identity=90, query_cov=60)
-    # table = generate_blastn_tsv(data)
-    # write_table(table, HEADER_BLASTN, '../Analysis/blastn_results.tsv')
-    # print_blastn_alignments(data)
-
-    query_title = 'TestQuery'
-    subject_id = 'Sta_89_NODE_9'
-
-    matches = get_matches_by_id(data, match_id=subject_id, query=query_title)
-    print(f"Query: {query_title}")
-    print(f"> {subject_id}\n")
-    for match in matches:
-        print(generate_blastn_alignment(match))
