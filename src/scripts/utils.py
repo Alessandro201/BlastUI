@@ -1,7 +1,15 @@
 import sys
+import shutil
 from configparser import ConfigParser
 from pathlib import Path
 from subprocess import Popen, PIPE, CalledProcessError
+import subprocess
+
+
+class GenomeData:
+    def __init__(self, name: str, genome: str):
+        self.name: str = name
+        self.genome: str = genome
 
 
 def read_configs(config_file='config.ini'):
@@ -61,28 +69,5 @@ def check_blast_executables_in_bin():
         yield program, program_path if program_path.exists() else None
 
 
-def run_command(command, error_description=''):
-    """
-    This function is a wrapper to run a command in the console.
-    It prints the output as soon as it's given, prints the error and raises a subprocess.CalledProcessError exception
-    to keep track of where the error was found and which command returned it.
-
-    """
-
-    if not error_description:
-        error_description = f'ERROR FOUND'
-
-    with Popen(command, stdout=PIPE, stderr=PIPE, bufsize=1,
-               universal_newlines=True) as popen:
-
-        # Save the errors in a variable to print them outside the with statement in case the return code is not zero.
-        # It needs to be this way because inside the with statement stderr works but no return code is given,
-        # and outside stderr does not work but there is a return code
-        stderr = ''.join(popen.stderr)
-
-    if popen.returncode != 0:
-        print(f'\n{error_description}: ')
-        for line in stderr:
-            print(line, end='')
-        print('')
-        raise CalledProcessError(popen.returncode, popen.args)
+def run_command(command):
+    subprocess.run(command, check=True, capture_output=True, text=True)

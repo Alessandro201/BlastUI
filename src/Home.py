@@ -3,8 +3,7 @@
 import streamlit as st
 
 from scripts.blast_downloader import BlastDownloader
-from scripts.blast_utilities import *
-import scripts.utils as utils
+from scripts.utils import *
 from pathlib import Path
 import shutil
 
@@ -80,7 +79,7 @@ def main():
                                                                          'overwrite existing files')
 
     # Choose which blast binaries to use and save it in the config file
-    configs = utils.read_configs()
+    configs = read_configs()
     match configs['BLAST']['use_executables_in']:
         case 'BlastUI':
             i = 0
@@ -94,12 +93,13 @@ def main():
             configs['BLAST']['use_executables_in'] = 'BlastUI'
         case 'In this PC':
             configs['BLAST']['use_executables_in'] = 'PATH'
-    utils.write_configs(configs)
+    write_configs(configs)
 
     ##### 2) Choose the database #####
     st.subheader('2) Choose the database')
-    st.write('To manage the genome databases, you can use the database manager in the corresponding page. '
-             'You can select it from the sidebar. ')
+    st.write('The next step is to create you genome database from the fasta files. You can manage your'
+             'databases by going to the corresponding page.')
+
 
 if __name__ == '__main__':
     main()

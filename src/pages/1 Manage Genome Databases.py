@@ -5,6 +5,7 @@ from pathlib import Path
 from scripts.makeblastdb import *
 from scripts.utils import *
 from multiprocessing import cpu_count
+from subprocess import CalledProcessError
 
 
 def save_uploads_to_disk(genomes: list[GenomeData], location: Path):
@@ -25,40 +26,16 @@ def read_genomes(uploaded_files) -> list[GenomeData]:
     return genomes
 
 
-def clear_genomes_folder(location: Path):
-    for file in location.iterdir():
-        file.unlink()
-
-
 def set_sidebar():
     options = dict()
 
     st.sidebar.title('Options')
-    st.sidebar.write('You can choose to remove contigs under a specified length from your genomes '
-                     'before creating the blast database. This will remove many partial contigs which only '
-                     'introduce noise in the blast results. ')
-
-    st.sidebar.subheader('Contigs filtering options')
-
-    options['remove_small_contigs'] = False
-    if st.sidebar.checkbox('Remove small contigs', key='remove_small_contigs', value=True):
-        min_length = st.sidebar.number_input('Minimum contig length',
-                                             value=1000, min_value=1, max_value=10000001, step=100)
-
-        options['remove_small_contigs'] = True
-        options['min_length'] = min_length
 
     st.sidebar.subheader('Blast database options')
 
     options['threads'] = st.sidebar.number_input('Threads to use: ',
                                                  min_value=1, max_value=cpu_count(),
                                                  value=round(cpu_count() / 2), step=1)
-
-    dbtype = st.sidebar.radio('Database type:', ('Nucleotides', 'Proteins'))
-    if dbtype == 'Nucleotides':
-        options['dbtype'] = 'nucl'
-    else:
-        options['dbtype'] = 'prot'
 
     return options
 
@@ -83,40 +60,80 @@ def main():
     with create_tab:
         st.write('Upload the genomes you want to use. To clear the list, just refresh the page.')
 
-        uploaded_files = st.file_uploader("Upload genomes", type=["fasta"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa"], accept_multiple_files=True)
         if uploaded_files:
             with st.spinner('Reading files...'):
                 st.session_state['genomes'] = read_genomes(uploaded_files)
             st.write(f'You have uploaded {len(st.session_state["genomes"])} genomes.')
+        else:
+            del st.session_state['genomes']
+
+        expand = True if 'genomes' in st.session_state else False
+        with st.expander('DATABASE OPTIONS', expanded=expand):
+
+            if 'genomes' in st.session_state:
+                st.text_input('Database name', key='new_db_name', value='my_database')
+
+                dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
+                if dbtype == 'Nucleotides':
+                    st.session_state['dbtype'] = 'nucl'
+                else:
+                    st.session_state['dbtype'] = 'prot'
+
+                st.write('You can choose to remove contigs under a specified length from your genomes '
+                         'before creating the blast database. This will remove many partial contigs which may '
+                         'introduce noise in the blast results. ')
+                st.write('If you have uploaded multifasta files of annotated proteins you should avoid '
+                         'removing small contigs, as you may remove actual proteins. '
+                         'Furthermore, you should have removed them before annotating the genome.')
+
+                st.checkbox('Remove small contigs', key='remove_contigs_checkbox', value=True)
+                st.number_input('Minimum contig length', key='min_length',
+                                disabled=not st.session_state['remove_contigs_checkbox'],
+                                value=1000, min_value=1, max_value=10000001, step=100)
+
+                st.write('Blast requires that the headers of the fasta files are unique. If you have '
+                         'uploaded genomes with repeated headers, you can choose to rename them. '
+                         'Each contig will be renamed as follows: "[genome_name]_NODE_[contig_number]" so '
+                         'be sure to not upload genomes with the same name.')
+                st.write('If you have uploaded multifasta files of annotated proteins you should avoid '
+                         'renaming the headers as they contain the protein name or its function. '
+                         'Blast requires the headers to be less than 50 character long, though.')
+                st.checkbox('Rename headers', key='rename_headers_checkbox', value=True)
 
         if 'genomes' in st.session_state:
-
-            st.markdown('##### Insert the Database name')
-            st.session_state['new_database'] = st.text_input('Database name', value='my_database')
-
-            if st.button('Create blast database'):
+            if st.button(label='Create database'):
 
                 pbar = st.progress(0)
                 binaries_in = read_configs()['BLAST']['use_executables_in']
                 makeblastdb_exec = get_program_path('makeblastdb', binaries_in=binaries_in)
 
                 makeblastdb = MakeBlastDB(genomes=st.session_state['genomes'],
-                                          db_name=st.session_state['new_database'],
-                                          dbtype=options['dbtype'],
+                                          db_name=st.session_state['new_db_name'],
+                                          dbtype=st.session_state['dbtype'],
                                           threads=options['threads'],
                                           pbar=pbar,
-                                          makeblastdb_exec=makeblastdb_exec)
+                                          makeblastdb_exec=makeblastdb_exec,
+                                          rename_headers=st.session_state['rename_headers_checkbox'])
 
                 # Filter genomes
-                if st.session_state['remove_small_contigs']:
-                    makeblastdb.remove_small_contigs(options['min_length'])
+                if st.session_state['remove_contigs_checkbox']:
+                    try:
+                        makeblastdb.remove_small_contigs(st.session_state['min_length'])
+                    except ValueError as e:
+                        st.error(e)
+                        st.stop()
 
                 # Generating multifasta file to make blast db
                 makeblastdb.generate_multifasta()
 
                 # Creating blast database
-                with st.spinner('Creating blast database...'):
-                    makeblastdb.run()
+                try:
+                    with st.spinner('Creating blast database...'):
+                        makeblastdb.run()
+                except CalledProcessError as e:
+                    st.error(e.stderr)
+                    raise e
 
                 st.success('Done!')
 
@@ -125,7 +142,7 @@ def main():
                  'You can delete them or rename them.')
 
         st.subheader('Choose databases:')
-        databases = list(Path(Path().cwd(), 'BlastDatabases').iterdir())
+        databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
         if databases:
             st.session_state['database'] = st.radio('Databases', [db.name for db in databases])
         else:

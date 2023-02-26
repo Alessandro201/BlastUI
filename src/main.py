@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE, STDOUT, CalledProcessError
 import shlex
 
 import webbrowser
@@ -36,11 +36,11 @@ def main():
     if popen.returncode != 0:
         error_description = f'ERROR IN RUNNING THE APPLICATION'
 
-        print(f'\n{bcolors.FAIL}{error_description}: {bcolors.ENDC}')
+        print(f'\n{error_description}: ')
         for line in stderr:
-            print(bcolors.FAIL + line + bcolors.ENDC, end='')
+            print(line, end='')
         print('')
-        raise subprocess.CalledProcessError(popen.returncode, popen.args)
+        raise CalledProcessError(popen.returncode, popen.args)
 
 
 if __name__ == "__main__":

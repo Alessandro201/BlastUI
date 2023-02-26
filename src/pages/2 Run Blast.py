@@ -18,33 +18,6 @@ from scripts.blast_response import *
 from scripts.utils import *
 
 
-def run_command(command, error_description=''):
-    """
-    This function is a wrapper to run a command in the console.
-    It prints the output as soon as it's given, prints the error and raises a subprocess.CalledProcessError exception
-    to keep track of where the error was found and which command returned it.
-
-    """
-
-    if not error_description:
-        error_description = f'ERROR FOUND'
-
-    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1,
-                          universal_newlines=True) as popen:
-
-        # Save the errors in a variable to print them outside the with statement in case the return code is not zero.
-        # It needs to be this way because inside the with statement stderr works but no return code is given,
-        # and outside stderr does not work but there is a return code
-        stderr = ''.join(popen.stderr)
-
-    if popen.returncode != 0:
-        print(f'\n{error_description}: ')
-        for line in stderr:
-            print(line, end='')
-        print('')
-        raise subprocess.CalledProcessError(popen.returncode, popen.args)
-
-
 def tblastn(query_file: Union[str, Path], db: str, threads: int, max_target_seq: int) -> BlastResponse:
     today = datetime.today()
     today_time = today.strftime("%Y%m%d_%H%M%S")
@@ -78,7 +51,7 @@ def blastn(query_file: Union[str, Path], db: str, threads: int, max_target_seq: 
 
 
 @st.cache_data
-def blast(query: str, blast_mode: str, db: str, threads: int, max_target_seq: int):
+def old_blast(query: str, blast_mode: str, db: str, threads: int, max_target_seq: int):
     """
     This function runs the blast command and returns the results as a dictionary.
     """
@@ -97,49 +70,78 @@ def blast(query: str, blast_mode: str, db: str, threads: int, max_target_seq: in
 
 
 @st.cache_data
-def generate_df(data: dict, blast_mode: str) -> pd.DataFrame:
+def blast(query: str, blast_mode: str, db: str, threads: int, max_target_seq: int):
     """
-    This function generate a pandas.DataFrame from the results of a blast analysis.
-
-    :param data: Dictionary with the results of the blast analysis
-                 run with parameter "-outfmt 15" and read by read_json()
-    :param blast_mode: String with the blast mode used to run the analysis:
-        - 'tblastn'
-        - 'blastn'
-    :return: pandas.DataFrame with the results of the blast analysis
+    This function runs the blast command and returns the results as a dictionary.
     """
 
-    if blast_mode == 'tblastn':
-        df: pd.DataFrame = generate_tblastn_df(data)
-    elif blast_mode == 'blastn':
-        df: pd.DataFrame = generate_blastn_df(data)
-    else:
-        raise ValueError(f'blast_mode {blast_mode} not recognized')
+    query_file = './Analysis/query.fasta'
+    save_query(query, query_file)
 
-    return df
+    today = datetime.today()
+    today_time = today.strftime("%Y%m%d_%H%M%S")
+    out_file = Path(f'./Analysis/{today_time}_results.json')
 
+    exec_in = read_configs()['BLAST']['use_executables_in']
 
-@st.cache_data
-def generate_alignments(data: list, indexes: list, blast_mode: str) -> list:
-    alignments = list()
+    match blast_mode:
+        case 'tblastn':
+            tblastn_path = get_program_path('tblastn', binaries_in=exec_in)
 
-    for match in get_matches_by_index(data, indexes):
-        if blast_mode == 'tblastn':
-            alignment = generate_tblastn_alignment(match)
-        elif blast_mode == 'blastn':
-            alignment = generate_blastn_alignment(match)
-        else:
+            cmd = shlex.split(f'"{tblastn_path}" -query "{query_file}" -db "{db}" -outfmt 15 '
+                              f'-out "{out_file}" -num_threads {threads} -qcov_hsp_perc 10 '
+                              f'-max_target_seqs {max_target_seq}')
+
+        case 'blastn':
+            blastn_path = get_program_path('blastn', binaries_in=exec_in)
+            cmd = shlex.split(f'"{blastn_path}" -query "{query_file}" -db "{db}" -outfmt 15 '
+                              f'-out "{out_file}" -num_threads {threads} -qcov_hsp_perc 10 '
+                              f'-max_target_seqs {max_target_seq}')
+
+        case 'blastp':
+            blastn_path = get_program_path('blastp', binaries_in=exec_in)
+            cmd = shlex.split(f'"{blastn_path}" -query "{query_file}" -db "{db}" -outfmt 15 '
+                              f'-out "{out_file}" -num_threads {threads} -qcov_hsp_perc 10 '
+                              f'-max_target_seqs {max_target_seq}')
+
+        case 'blastx':
+            blastn_path = get_program_path('blastx', binaries_in=exec_in)
+            cmd = shlex.split(f'"{blastn_path}" -query "{query_file}" -db "{db}" -outfmt 15 '
+                              f'-out "{out_file}" -num_threads {threads} -qcov_hsp_perc 10 '
+                              f'-max_target_seqs {max_target_seq}')
+
+        case 'tblastx':
+            blastn_path = get_program_path('tblastx', binaries_in=exec_in)
+            cmd = shlex.split(f'"{blastn_path}" -query "{query_file}" -db "{db}" -outfmt 15 '
+                              f'-out "{out_file}" -num_threads {threads} -qcov_hsp_perc 10 '
+                              f'-max_target_seqs {max_target_seq}')
+
+        case _:
             raise ValueError(f'blast_mode {blast_mode} not recognized')
 
-        alignments.append((match["strain"], match["node"], alignment))
+    try:
+        run_command(cmd)
+    except CalledProcessError as e:
+        stderr = e.stderr
+        st.error(f'Error running blast: {stderr}')
 
-    return alignments
+        if 'BLAST Database error: No alias or index file found for nucleotide database' in stderr:
+            st.info(f'It seems you were trying to do a ***{blast_mode.upper()}*** which requires a '
+                    f'nucleotide database, but ***{Path(db).parent.name}*** is of proteins.')
+        elif 'BLAST Database error: No alias or index file found for protein database' in stderr:
+            st.info(f'It seems you were trying to do a ***{blast_mode.upper()}*** which requires a '
+                    f'protein database, but ***{Path(db).parent.name}*** is of nucleotides.')
+        else:
+            raise e
+
+        st.stop()
+
+    return BlastResponse(out_file)
 
 
 @st.cache_data
-def convert_df_to_tsv(df):
+def convert_df_to_tsv(df: pd.DataFrame) -> bytes:
     # IMPORTANT: Cache the conversion to prevent computation on every rerun
-    # return df.drop(['index']).to_csv(sep='\t', index_col=False).encode('utf-8')
     return df.to_csv(sep='\t', index=False).encode('utf-8')
 
 
@@ -149,18 +151,21 @@ def save_query(query, query_file):
 
 
 @st.cache_data
-def extract_indexes(selected: list) -> list:
+def extract_indexes(selected: list):
     indexes = []
     for row in selected:
         nodeRowIndex = row['_selectedRowNodeInfo']['nodeRowIndex']
         match_index = row['id']
         indexes.append((nodeRowIndex, match_index))
+    try:
+        indexes = sorted(indexes, key=lambda x: x[0])
+    except TypeError:
+        # The grid was grouped by a column, so the nodeRowIndex is None, and you can't sort with None
+        pass
+    return zip(*indexes)
 
-    indexes = sorted(indexes, key=lambda x: x[0])
-    return [index[1] for index in indexes]
 
-
-def _download_button(object_to_download, download_filename):
+def html_download(object_to_download: Union[str, bytes], download_filename):
     """
     Generates a link to download the given object_to_download.
     Params:
@@ -174,37 +179,54 @@ def _download_button(object_to_download, download_filename):
 
     ext = PurePath(download_filename).suffix
 
-    if isinstance(object_to_download, pd.DataFrame):
-        object_to_download = object_to_download.to_csv(index=False)
-    elif isinstance(object_to_download, str):
-        pass
-    # Try JSON encode for everything else
-    else:
-        object_to_download = json.dumps(object_to_download)
+    match object_to_download:
+        case str():
+            bytes_object = object_to_download.encode()
+        case bytes():
+            bytes_object = object_to_download
+        case _:
+            object_to_download = json.dumps(object_to_download)
+            bytes_object = object_to_download.encode()
 
     try:
         # some strings <-> bytes conversions necessary here
-        b64 = base64.b64encode(object_to_download.encode()).decode()
+        b64 = base64.b64encode(bytes_object).decode()
 
     except AttributeError as e:
         b64 = base64.b64encode(object_to_download).decode()
 
     dl_link = f"""
-    <html>
-    <head>
-    <title>Start Auto Download file</title>
-    <script src="http://code.jquery.com/jquery-3.2.1.min.js"></script>
-    <script>
-    $('<a href="data:text/{ext};base64,{b64}" download="{download_filename}">')[0].click()
-    </script>
-    </head>
-    </html>
-    """
+        <script src="http://code.jquery.com/jquery-3.2.1.min.js"></script>
+        <script>
+        $('<a href="data:text/{ext};base64,{b64}" download="{download_filename}">')[0].click()
+        </script>
+        """
     return dl_link
 
 
+def download_whole_table():
+    grid_df = st.session_state['grid_df']
+    table_data: bytes = convert_df_to_tsv(grid_df)
+
+    filename = 'blast.tsv'
+    components.html(html_download(table_data, filename), height=None, width=None)
+
+
+def download_selected_row():
+    selected = st.session_state['selected']
+
+    # Check that it's not empty
+    selected_data = ''
+    if selected:
+        selected_df = pd.DataFrame(selected)
+        selected_df.drop(columns=['_selectedRowNodeInfo', 'id'], inplace=True)
+        selected_data = convert_df_to_tsv(selected_df)
+
+    filename = "blast_rows.tsv"
+    components.html(html_download(selected_data, filename), height=None)
+
+
 def download_all_alignments():
-    st.info('Generating all the alignments...')
     blast_response = st.session_state['BlastResponse']
     grid_df = st.session_state['grid_df']
     indexes = grid_df['id']
@@ -213,10 +235,18 @@ def download_all_alignments():
     alignments = '\n'.join(alignments)
 
     filename = "alignments.txt"
-    components.html(
-        _download_button(alignments, filename),
-        height=None,
-    )
+    components.html(html_download(alignments, filename), height=None)
+
+
+def download_selected_alignments():
+    row_alignments = ''
+    if 'row_alignments' in st.session_state:
+        row_alignments = st.session_state['row_alignments']
+
+    alignments = '\n'.join(row_alignments)
+
+    filename = "selected_alignments.txt"
+    components.html(html_download(alignments, filename), height=None)
 
 
 def set_download_buttons(container=None):
@@ -227,29 +257,11 @@ def set_download_buttons(container=None):
 
     # Downloads the whole table
     with col1:
-        df = st.session_state['grid_df']
-        col1.download_button(
-            label="Download table",
-            data=convert_df_to_tsv(df),
-            file_name='blast.tsv',
-            mime='text/tsv')
+        col1.button("Download table", on_click=download_whole_table)
 
     # Downloads only selected rows
     with col2:
-        selected = st.session_state['selected']
-
-        # Check that it's not empty
-        selected_data = ''
-        if selected:
-            selected_df = pd.DataFrame(selected)
-            selected_df.drop(columns=['_selectedRowNodeInfo', 'id'], inplace=True)
-            selected_data = convert_df_to_tsv(selected_df)
-
-        col2.download_button(
-            label="Download selected rows",
-            data=selected_data,
-            file_name='blast_rows.tsv',
-            mime='text/tsv')
+        col2.button('Download selected rows', on_click=download_selected_row)
 
     # Download all alignments
     with col3:
@@ -269,47 +281,80 @@ def set_download_buttons(container=None):
             mime='text')
 
 
+def set_download_checkboxes(container=None):
+    if not container:
+        container = st
+
+    options = ['Download table', 'Download selected rows', 'Download all alignments', 'Download selected alignments']
+
+    download_option = container.radio('If you want to download something, select it here', options=options, index=0)
+
+    match download_option:
+        case 'Download table':
+            callback = download_whole_table
+        case 'Download selected rows':
+            callback = download_selected_row
+        case 'Download all alignments':
+            callback = download_all_alignments
+        case 'Download selected alignments':
+            callback = download_all_alignments
+
+    empty = container.empty()
+    if empty.button('Download', on_click=callback):
+        empty.empty()
+
+
 @st.cache_data
 def get_aggrid_options(df: pd.DataFrame) -> dict:
     gb = GridOptionsBuilder.from_dataframe(df)
 
-    gb.configure_column('id', hide=True)
-
-    if df.sseq.str.len().max() >= 1000:
-        gb.configure_column('sseq', hide=True)
-
-    gb.configure_column('sseq', hide=True)
+    gb.configure_column("Row", valueGetter="node.rowIndex + 1", enableRowGroup=False, aggFunc='first', pinned='left')
 
     gb.configure_default_column(groupable=True,
                                 value=True,
                                 enableRowGroup=True,
-                                aggFunc='avg',
-                                editable=False)
+                                aggFunc='avg')
 
-    gb.configure_column('query_title', aggFunc='count')
-    gb.configure_column('strain', aggFunc='count')
-    gb.configure_column('node', aggFunc='count')
+    gb.configure_column('id', hide=True)
+
+    if df.sseq.str.len().max() >= 200:
+        gb.configure_column('sseq', hide=True)
+
+    gb.configure_columns(['query_title', 'strain', 'node'], aggFunc='count')
 
     gb.configure_selection('multiple',
                            use_checkbox=False,
                            groupSelectsChildren=True,
                            groupSelectsFiltered=True,
-                           rowMultiSelectWithClick=True)
+                           rowMultiSelectWithClick=True, )
+
+    gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=100)
 
     gb.configure_grid_options()
 
+    built = gb.build()
+
+    # Move the row column to the first position
+    row_columns_index = len(built['columnDefs']) - 1
+    built['columnDefs'].insert(0, built['columnDefs'].pop(row_columns_index))
+
     kwargs = {
-        'gridOptions': gb.build(),
+        'gridOptions': built,
         'height': 800 if len(df.index) > 30 else None,
         'width': '100%',
         'data_return_mode': DataReturnMode.FILTERED_AND_SORTED,
-        'update_mode': GridUpdateMode.GRID_CHANGED,
+        'update_on': ['modelUpdated'],
         'fit_columns_on_grid_load': False,
         'columns_auto_size_mode': ColumnsAutoSizeMode.FIT_CONTENTS,
-        'theme': 'streamlit',
+        'theme': 'streamlit'
     }
 
     return kwargs
+
+
+def load_aggrid(df):
+    aggrid_options = get_aggrid_options(df)
+    return AgGrid(df, **aggrid_options)
 
 
 def sidebar_options() -> dict:
@@ -319,14 +364,16 @@ def sidebar_options() -> dict:
 
     options = dict()
     st.sidebar.title("Options")
-    Path('../BlastDatabases').mkdir(parents=True, exist_ok=True)
+    Path('./BlastDatabases').mkdir(parents=True, exist_ok=True)
     dbs = [path.name for path in Path('./BlastDatabases').iterdir() if path.is_dir()]
     if dbs:
         db = st.sidebar.selectbox('Select Blast Database', dbs)
         options['db'] = Path('./BlastDatabases', db, 'blastdb')
     else:
         st.sidebar.info('No databases found. Please make one in the Manage Genome Databases section.')
-    options['blast_mode'] = st.sidebar.radio('Select blast operation mode', ['tblastn', 'blastn'])
+
+    blast_modes = ['blastn', 'tblastn', 'blastp', 'blastx', 'tblastx']
+    options['blast_mode'] = st.sidebar.radio('Select blast operation mode', options=blast_modes, index=1)
 
     options['max_target_seq'] = st.sidebar.number_input('Max sequences per query: ', min_value=1, value=500, step=100)
     options['threads'] = st.sidebar.number_input('Threads to use: ',
@@ -367,14 +414,6 @@ def sidebar_options() -> dict:
 
 
 def main():
-    HEADER_TBLASTN = ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                      'identity', 'positive', 'mismatch', 'gap_opens', 'q_start', 'q_end', 's_start',
-                      's_end', 'evalue', 'bit_score', 'sseq']
-
-    HEADER_BLASTN = ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                     'identity', 'mismatch', 'gap_opens', 'q_start', 'q_end', 's_start',
-                     's_end', 'evalue', 'bit_score', 'sseq']
-
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
@@ -383,7 +422,7 @@ def main():
     st.title('Blast queries against your local database!')
 
     options = sidebar_options()
-    query = st.text_area('Enter your query', placeholder="Query...")
+    query = st.text_area('Enter your query', placeholder="Query...", height=200)
 
     if st.button("Blast query"):
         if 'db' not in options:
@@ -394,39 +433,39 @@ def main():
             st.warning('Please enter a query')
             st.stop()
 
-        with st.spinner('Blasting...'):
-            st.session_state['BlastResponse']: BlastResponse = blast(query,
-                                                                     blast_mode=options['blast_mode'],
-                                                                     db=options['db'],
-                                                                     threads=options['threads'],
-                                                                     max_target_seq=options['max_target_seq'], )
+        # with st.spinner('Blasting...'):
+        blast_response = blast(query,
+                               blast_mode=options['blast_mode'],
+                               db=options['db'],
+                               threads=options['threads'],
+                               max_target_seq=options['max_target_seq'], )
 
-        with st.spinner('Converting to dataframe...'):
-            if options['blast_mode'] == 'tblastn':
-                columns = HEADER_TBLASTN + ['id']
-            elif options['blast_mode'] == 'blastn':
-                columns = HEADER_BLASTN + ['id']
-            st.session_state['df'] = st.session_state['BlastResponse'].to_dataframe(columns=columns)
+        st.session_state['BlastResponse']: BlastResponse = blast_response
+        st.session_state['df'] = blast_response.reindexed_df
 
     if 'df' in st.session_state:
-        blast_response = st.session_state['BlastResponse']
-        df = st.session_state['df']
-        df = filter_results(df, options['perc_identity'], options['perc_alignment'])
+        blast_response: BlastResponse = st.session_state['BlastResponse']
+        df = blast_response.filtered_df(options['perc_identity'], options['perc_alignment'])
 
         tab_table, tab_alignments = st.tabs(['Table', 'Alignments'])
 
         with tab_table:
             st.header("Blast analysis results")
-            st.write("Click on a row to show the alignment, click again to hide it.")
             st.write("By clicking on a column you can sort it. When you hover on it, an icon will appear "
                      "that will enable you to filter or aggregate the data. For example you can group by Strain "
                      "to see how many matches each strain has, and click on the *\"count(Query)\"* column to sort it."
-                     " It's very useful if you want to find gene duplicates.")
+                     " It's very useful if you want to find gene duplicates. Remember to also click on "
+                     "*\"Autosize All Columns\"* to see the full name of the columns.")
+            st.write("Click on a row to show its alignment, click again to hide it. ")
+            st.write("To reset any filtering, sorting, aggregation or selection you can click again on the "
+                     "'blast query' button. Don't worry, it will not repeat the analysis unless you changed "
+                     "some options, as it is cached.")
 
+            # Initialize the download buttons
+            download_container = st.container()
+            set_download_checkboxes(container=download_container)
 
-
-            aggrid_options = get_aggrid_options(df)
-            grid = AgGrid(df, **aggrid_options)
+            grid = load_aggrid(df)
 
             grid_df = grid['data']
             selected = grid['selected_rows']
@@ -439,18 +478,17 @@ def main():
             # Show alignments of selected rows
             if selected:
                 row_alignments = list()
-                indexes = extract_indexes(selected)
-                alignments = blast_response.alignments(indexes=indexes)
+                row_indexes, match_ids = extract_indexes(selected)
+                alignments = blast_response.alignments(indexes=match_ids)
 
                 st.session_state['row_alignments'] = '\n'.join(row_alignments)
 
-                for i, alignment in enumerate(alignments):
-                    st.markdown(f"###### **{i})**")
+                for row, alignment in zip(row_indexes, alignments):
+                    try:
+                        st.markdown(f"###### **{row + 1})**")
+                    except TypeError:
+                        st.markdown(f"###### **#)**")
                     st.code(alignment)
-
-            # Initialize the download buttons
-            download_container = st.container()
-            set_download_buttons(container=download_container)
 
         with tab_alignments:
             st.header("Blast analysis alignments")
@@ -478,21 +516,19 @@ def main():
             indexes = grid_df['id'][start:end]
             alignments = blast_response.alignments(indexes=indexes)
 
-            download_button = st.container()
+            download_btn = st.container()
 
             for i, alignment in enumerate(alignments):
-                num_col, alignments_col = st.columns([1, 20])
-                num_col.subheader(f"{i})")
+                num_col, alignments_col = st.columns([1, 10])
+                num_col.subheader(f"{start + i + 1})")
                 alignments_col.code(alignment)
 
-            download_button._download_button(
+            download_btn.download_button(
                 label="Download alignments in this page",
                 data='\n'.join(alignments),
                 file_name=f'alignments_{page}.txt',
                 mime='text',
                 key='alignments_download_button2')
-
-            st.session_state['alignments'] = '\n'.join(alignments)
 
 
 if __name__ == "__main__":
