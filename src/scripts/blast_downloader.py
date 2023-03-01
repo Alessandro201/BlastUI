@@ -1,11 +1,12 @@
+import hashlib
 import shutil
-
+import streamlit as st
 import sys
+import tarfile
 from ftplib import FTP
 import streamlit as st
 from pathlib import Path
-import tarfile
-import hashlib
+
 
 
 def sizeof_fmt(num, suffix="B"):

@@ -1,9 +1,50 @@
-import sys
 import shutil
+import subprocess
+import sys
 from configparser import ConfigParser
 from pathlib import Path
-from subprocess import Popen, PIPE, CalledProcessError
-import subprocess
+from streamlit.runtime.scriptrunner import RerunData, RerunException
+from streamlit.source_util import get_pages
+
+
+def switch_page(page_name: str):
+    def standardize_name(name: str) -> str:
+        return name.lower().replace("_", " ")
+
+    page_name = standardize_name(page_name)
+
+    pages = get_pages("Home.py")  # OR whatever your main page is called
+    print(pages)
+
+    for page_hash, config in pages.items():
+        if standardize_name(config["page_name"]) == page_name:
+            raise RerunException(
+                RerunData(
+                    page_script_hash=page_hash,
+                    page_name=page_name,
+                )
+            )
+
+    page_names = [standardize_name(config["page_name"]) for config in pages.values()]
+
+    raise ValueError(f"Could not find page {page_name}. Must be one of {page_names}")
+
+
+class fragile(object):
+    class Break(Exception):
+        """Break out of the with statement"""
+
+    def __init__(self, value):
+        self.value = value
+
+    def __enter__(self):
+        return self.value.__enter__()
+
+    def __exit__(self, etype, value, traceback):
+        error = self.value.__exit__(etype, value, traceback)
+        if etype == self.Break:
+            return True
+        return error
 
 
 class GenomeData:

@@ -44,7 +44,7 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon='None')
+                       page_icon='🧬')
 
     options = set_sidebar()
 
@@ -60,6 +60,7 @@ def main():
     with create_tab:
         st.write('Upload the genomes you want to use. To clear the list, just refresh the page.')
 
+        st.session_state['genomes'] = list()
         uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa"], accept_multiple_files=True)
         if uploaded_files:
             with st.spinner('Reading files...'):

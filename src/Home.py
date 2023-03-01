@@ -1,18 +1,17 @@
 # Description: This file is the entry point of streamlit for the application.
 # It is called by the main.py file.
+import shutil
 import streamlit as st
 
 from scripts.blast_downloader import BlastDownloader
 from scripts.utils import *
-from pathlib import Path
-import shutil
 
 
 def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon='None')
+                       page_icon='🧬')
 
     st.title('BlastUI')
     st.write('This app will let you blast a query against your own custom sequences.')

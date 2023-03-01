@@ -168,6 +168,10 @@ showPyplotGlobalUse = true
 
 
 [theme]
+base="dark"
+backgroundColor="#1a1c21"
+secondaryBackgroundColor="#292a34"
+
 
 # The preset Streamlit theme that your custom theme inherits from. One of "light" or "dark".
 # base =

@@ -1,9 +1,8 @@
-import sys
-from pathlib import Path
-from subprocess import Popen, PIPE, STDOUT, CalledProcessError
 import shlex
-
+import sys
 import webbrowser
+from pathlib import Path
+from subprocess import Popen, PIPE, CalledProcessError
 
 
 def main():
@@ -16,31 +15,12 @@ def main():
 
     cmd = shlex.split(f'"{executable}" -m streamlit run "{path_to_run}"')
 
-    with Popen(cmd, stdout=PIPE, stderr=PIPE, bufsize=1, universal_newlines=True) as popen:
+    with Popen(cmd, stdout=sys.stdout, stderr=sys.stderr) as popen:
         print(f"Running streamlit server in a subprocess: {cmd}")
 
         # Force the opening (does not open automatically) of the browser tab after a brief delay to let
         # the streamlit server start.
         webbrowser.open("http://localhost:8501")
-
-        # prints the output as soon as it's given
-        for line in popen.stdout:
-            print(line, end='', flush=True)
-            sys.stdout.flush()
-
-        # Save the errors in a variable to print them outside the with statement in case the return code is not zero.
-        # It needs to be this way because inside the with statement stderr works but no return code is given,
-        # and outside stderr does not work but there is a return code
-        stderr = ''.join(popen.stderr)
-
-    if popen.returncode != 0:
-        error_description = f'ERROR IN RUNNING THE APPLICATION'
-
-        print(f'\n{error_description}: ')
-        for line in stderr:
-            print(line, end='')
-        print('')
-        raise CalledProcessError(popen.returncode, popen.args)
 
 
 if __name__ == "__main__":
