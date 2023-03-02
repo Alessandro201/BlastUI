@@ -237,8 +237,8 @@ class BlastResponse:
         self.queries: dict = dict()
         self.messages: list = list()
         self.parse_json()
-        self.df = self.generate_df()
-        self.reindexed_df = self.reindex_df()
+        self.whole_df = self._generate_df()
+        self.df = self.reindex_df()
 
     @staticmethod
     def _read(json_file: Union[dict, Path]):
@@ -290,7 +290,7 @@ class BlastResponse:
         for index in indexes:
             yield self.matches[index].alignment()
 
-    def generate_df(self) -> pd.DataFrame:
+    def _generate_df(self) -> pd.DataFrame:
         df = pd.DataFrame().from_records([match.__dict__ for match in self.matches.values()])
         return df
 
@@ -303,8 +303,8 @@ class BlastResponse:
         if not columns:
             columns = self.headers[self.program]
 
-        df = self.df
-        columns_to_drop = set(self.df.columns) - set(columns)
+        df = self.whole_df
+        columns_to_drop = set(self.whole_df.columns) - set(columns)
         df = df.drop(columns=columns_to_drop)
         df = df.reindex(columns=columns)
 
@@ -322,7 +322,7 @@ class BlastResponse:
         if not 0 <= query_cov <= 100:
             raise ValueError(f"Query coverage must be between 0 and 100, not {query_cov}")
 
-        df = self.reindexed_df
+        df = self.df
         return df[(df['perc_identity'] >= identity) & (df['perc_alignment'] >= query_cov)]
 
     def plot_alignments_bokeh(self, indexes: Iterable[int], height: int = None, max_hits: int = 100):
@@ -354,7 +354,7 @@ class BlastResponse:
         # All the indexes have the same query, thus the same query len
         query_len = self.matches[indexes[0]].query_len
 
-        rows = self.df[self.df['id'].isin(indexes)].drop(columns=['sseq', 'qseq', 'midline'])
+        rows = self.whole_df[self.whole_df['id'].isin(indexes)].drop(columns=['sseq', 'qseq', 'midline'])
         rows = rows.sort_values(by=['evalue', 'perc_alignment'], inplace=False, ascending=[True, False])
         rows = rows[:max_hits]
 
