@@ -3,6 +3,7 @@ import subprocess
 import sys
 from configparser import ConfigParser
 from pathlib import Path
+from typing import Generator, Union
 
 
 class fragile(object):
@@ -55,34 +56,58 @@ def get_program_path(program_name, binaries_in='BlastUI'):
     if binaries_in == 'BlastUI':
         match sys.platform:
             case 'linux' | 'linux2' | 'darwin':
-                program_path = Path().cwd() / 'Binaries/bin' / program_name
+                program_path = PAth('./Binaries/bin') / program_name
             case 'win32':
-                program_path = Path().cwd() / 'Binaries/bin' / (program_name + '.exe')
+                program_path = Path('./Binaries/bin') / (program_name + '.exe')
             case _:
-                raise OSError(f'Your platform ({platform}) is not supported.')
+                raise OSError(f'Your platform ({platform}) is not supported, there are no blast executables '
+                              f'for your Operating System.')
 
     if not Path(program_path).exists():
-        st.error(f'{program_name} not found in PATH or in the Binaries folder')
-        st.stop()
+        raise ValueError(f'{program_name} not found in the Binaries folder.')
 
     return program_path
 
 
 def check_blast_executables():
+    """
+    Returns a list of paths to the blast executables found in $PATH.
+    If a program is not found, it returns None.
+    :return:
+    """
+
     blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']
 
     for program in blast_programs:
-        yield program, shutil.which(program)
+        yield shutil.which(program)
 
 
 def check_blast_executables_in_bin():
+    """
+    Returns a list of paths to the blast executables in the Binaries folder.
+    If a program is not found, it returns None.
+    :return:
+    """
+
     blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']
 
     for program in blast_programs:
         program_path = Path('./Binaries/bin', program)
         if sys.platform == "win32":
             program_path = Path('./Binaries/bin', program + '.exe')
-        yield program, program_path if program_path.exists() else None
+
+        yield program_path if program_path.exists() else None
+
+
+def check_blast_version(program_path: Path) -> str:
+    """
+    Returns the version of the blast program passed as an argument.
+    :param program_path: Path to the blast program
+    :return: Version of the blast program
+    """
+
+    version = subprocess.run([program_path, '-version'], check=True, capture_output=True, text=True)
+    return version.stdout.split()[1]
 
 
 def run_command(command):
