@@ -1,18 +1,9 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
-
 from os.path import splitext
 
 import shlex
-import streamlit as st
-from pathlib import Path
 
 from scripts.utils import *
-
-
-class GenomeData:
-    def __init__(self, name: str, genome: str):
-        self.name: str = name
-        self.genome: str = genome
 
 
 class MakeBlastDB:
@@ -23,18 +14,21 @@ class MakeBlastDB:
                  threads: int = 1,
                  pbar=None,
                  multifasta: Path = None,
-                 dbtype: str = 'nucl'):
+                 dbtype: str = 'nucl',
+                 rename_headers: bool = False):
 
         self.genomes = genomes
         self.threads = threads
 
+        self.rename_headers = rename_headers
         self.pbar = pbar
 
         self.multifasta = Path(multifasta) if multifasta else Path('./BlastDatabases/multifasta.fasta')
         self.multifasta.parent.mkdir(parents=True, exist_ok=True)
+        if self.multifasta.exists():
+            self.multifasta.unlink()
 
-        self.db = Path('BlastDatabases', db_name, 'blastdb')
-        self.db.parent.mkdir(parents=True, exist_ok=True)
+        self.db = Path('./BlastDatabases', db_name, 'blastdb')
 
         self.exec = makeblastdb_exec
         self.dbtype = dbtype
@@ -57,8 +51,11 @@ class MakeBlastDB:
             if (len(seq) - n_lines) < min_length:
                 indexes_to_remove.append(index)
 
-        for index in indexes_to_remove:
+        for index in reversed(indexes_to_remove):
             contigs.pop(index)
+
+        if not contigs:
+            raise ValueError(f'No contigs left after filtering for {genome.name}')
 
         return GenomeData(name=genome.name, genome='>' + '>'.join(contigs))
 
@@ -112,6 +109,11 @@ class MakeBlastDB:
         return ''.join(contigs)
 
     def generate_multifasta(self):
+
+        if not self.rename_headers:
+            self.multifasta.write_text(''.join([genome.genome for genome in self.genomes]))
+            return
+
         self.pbar.progress(0, text=f"Joining the genomes... (0/{len(self.genomes)})")
 
         with ProcessPoolExecutor(max_workers=self.threads) as executor:
@@ -131,8 +133,10 @@ class MakeBlastDB:
         """
 
         command = f'"{self.exec}" -in "{self.multifasta}" -input_type fasta -parse_seqids -dbtype {self.dbtype} ' \
-                  f'-out "{self.db}" -title "{self.db.parent.name} -hash_index -max_file_sz 2GB"'
+                  f'-out "{self.db}" -title "{self.db.parent.name}" -hash_index -max_file_sz 2GB'
 
         command = shlex.split(command)
-        run_command(command, error_description='ERROR FOUND WHEN MAKING A BLAST DB')
-        self.multifasta.unlink()
+        try:
+            run_command(command)
+        finally:
+            self.multifasta.unlink()
