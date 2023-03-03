@@ -2,11 +2,16 @@ import hashlib
 import shutil
 import streamlit as st
 import sys
+import os
 import tarfile
 from ftplib import FTP
 import streamlit as st
 from pathlib import Path
+import stat
 
+
+class DownloadError(Exception):
+    pass
 
 
 def sizeof_fmt(num, suffix="B"):
@@ -33,7 +38,11 @@ def md5(fname):
 
 
 class BlastDownloader:
-    def __init__(self, host=None, directory_url=None, download_path=None, force_download=False, pbar=None):
+    def __init__(self, host: str = None,
+                 directory_url: str = None,
+                 download_folder: Path = None,
+                 force_download=False,
+                 pbar=None):
 
         if not host:
             host = 'ftp.ncbi.nlm.nih.gov'
@@ -50,10 +59,16 @@ class BlastDownloader:
             self.filesize = int(self.filesize)
             self.downloaded_bytes = 0
 
-            if not download_path:
-                download_path = Path().cwd() / 'Binaries' / self.filename
+            if not download_folder:
+                download_folder = Path().cwd() / 'Binaries' / self.filename
+            else:
+                if Path(download_folder).is_file():
+                    raise OSError(f'{download_folder} is not a file')
 
-            self.download_path = Path(download_path)
+                download_folder = Path(download_folder) / self.filename
+
+            self.download_path = Path(download_folder)
+            self.download_path.parent.mkdir(parents=True, exist_ok=True)
             self.md5_download_path = self.download_path.parent / self.md5filename
 
             # Letting the user give a progress bar is useful because he can place it where it wants while
@@ -81,6 +96,7 @@ class BlastDownloader:
             self.ftp.quit()
 
         self.extract_bin()
+        self.remove_unnecessary_executables()
 
         self.download_path.unlink()
         self.md5_download_path.unlink()
@@ -156,3 +172,29 @@ class BlastDownloader:
         shutil.rmtree(bin_dir.parent)
 
         self.pbar.progress(100, text=f'Done!')
+
+    def remove_unnecessary_executables(self):
+        bin_dir = self.download_path.parent / 'bin'
+        for file in bin_dir.iterdir():
+            try:
+                if file.suffix == '.dll':
+                    continue
+                if file.suffix == '.manifest' or file.suffix == '.pl' or file.suffix == '.py':
+                    file.unlink()
+                elif file.name.startswith(('rps', 'windowmasker', 'segmasker', 'psiblast', 'dustmasker',
+                                           'blastdbcheck', 'blastdbcmd', 'blastdb_aliastool', 'blast_formatter',
+                                           'blastn_vdb', 'blast_vdb_cmd', 'cleanup-blastdb-volumes', 'deltablast',
+                                           'makeprofiledb', 'convert2blastmask', 'get_species_taxids.sh')):
+                    file.unlink()
+
+            except PermissionError:
+                # Sometimes some folders get a stubborn read-only attribute which inhibits
+                # os.rmdir from removing the directory. Changing the file permission should
+                # do the trick
+
+                # Change folder permissions to 0777:
+                # stat.S_IRWXU Mask for file owner permissions.
+                # stat.S_IRWXG Mask for group permissions.
+                # stat.S_IRWXO Mask for permissions for others (not in group).
+                os.chmod(file_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                file.unlink()
