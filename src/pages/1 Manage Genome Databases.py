@@ -7,6 +7,9 @@ from scripts.utils import *
 from multiprocessing import cpu_count
 from subprocess import CalledProcessError
 
+from streamlit_extras.switch_page_button import switch_page
+from streamlit_extras.stoggle import stoggle
+
 
 def save_uploads_to_disk(genomes: list[GenomeData], location: Path):
     for genome in genomes:
@@ -47,13 +50,26 @@ def main():
                        page_icon='🧬')
 
     options = set_sidebar()
-
     st.title("Manage blast db")
-    st.write('To blast a query against some genomes, you need to first create a blast database with them. '
-             'This process will take a few minutes, depending on the number of genomes and their size, '
-             'and it will only be done once but it will greatly speed up any blast you perform.')
-    st.write('The database will be saved locally and no file will be shared online. As a matter of fact, '
-             'the application works entirely offline, apart from the first download of blast executables.')
+
+    # Check that BLAST is installed
+    try:
+        binaries_in = read_configs()['BLAST']['use_executables_in']
+        get_program_path('makeblastdb', binaries_in=binaries_in)
+    except ValueError:
+        st.error('Could not find BLAST. Please download it in the home section.')
+        if st.button('Go to home'):
+            switch_page('Home')
+        st.stop()
+
+    st.markdown("""
+                To blast a query against some genomes, you need to first create a blast database with them. 
+                This process will take a few minutes, depending on the number of genomes and their size, 
+                and it will only be done once.
+                
+                The database will be saved locally and no file will be shared online. As a matter of fact, 
+                the application works entirely offline, apart from the first download of BLAST.
+                """)
 
     create_tab, manage_tab = st.tabs(['Create blast database', 'Manage blast databases'])
 
@@ -75,32 +91,39 @@ def main():
             if 'genomes' in st.session_state:
                 st.text_input('Database name', key='new_db_name', value='my_database')
 
-                dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
-                if dbtype == 'Nucleotides':
-                    st.session_state['dbtype'] = 'nucl'
-                else:
-                    st.session_state['dbtype'] = 'prot'
+                col1, col2 = st.columns(2)
 
-                st.write('You can choose to remove contigs under a specified length from your genomes '
-                         'before creating the blast database. This will remove many partial contigs which may '
-                         'introduce noise in the blast results. ')
-                st.write('If you have uploaded multifasta files of annotated proteins you should avoid '
-                         'removing small contigs, as you may remove actual proteins. '
-                         'Furthermore, you should have removed them before annotating the genome.')
+                with col1:
+                    dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
+                    if dbtype == 'Nucleotides':
+                        st.session_state['dbtype'] = 'nucl'
+                    else:
+                        st.session_state['dbtype'] = 'prot'
 
-                st.checkbox('Remove small contigs', key='remove_contigs_checkbox', value=True)
-                st.number_input('Minimum contig length', key='min_length',
-                                disabled=not st.session_state['remove_contigs_checkbox'],
-                                value=1000, min_value=1, max_value=10000001, step=100)
+                    stoggle('Help ❓',
+                            """
+                            Blast requires that the headers of the fasta files are unique. If you have 
+                            uploaded genomes with repeated headers, you can choose to rename them. 
+                            Each contig will be renamed as follows: "[genome_name]\_NODE\_[contig_number]" so 
+                            be sure to not upload genomes with the same name. </br></br>
+                            If you have uploaded multifasta files of annotated proteins you should avoid 
+                            removing small contigs, as you may remove actual proteins. 
+                            Furthermore, you should have removed them before annotating the genome.
+                            """)
 
-                st.write('Blast requires that the headers of the fasta files are unique. If you have '
-                         'uploaded genomes with repeated headers, you can choose to rename them. '
-                         'Each contig will be renamed as follows: "[genome_name]_NODE_[contig_number]" so '
-                         'be sure to not upload genomes with the same name.')
-                st.write('If you have uploaded multifasta files of annotated proteins you should avoid '
-                         'renaming the headers as they contain the protein name or its function. '
-                         'Blast requires the headers to be less than 50 character long, though.')
-                st.checkbox('Rename headers', key='rename_headers_checkbox', value=True)
+                    st.checkbox('Rename headers', key='rename_headers_checkbox', value=True)
+
+                with col2:
+                    stoggle('Help ❓',
+                            """
+                            You can choose to remove contigs under a specified length from your genomes before 
+                            creating the blast database. This will remove many partial and broken contigs formed during 
+                            the assembly which may introduce noise in the blast results. 
+                            """)
+                    st.checkbox('Remove small contigs from the fasta', key='remove_contigs_checkbox', value=True)
+                    st.number_input('Minimum contig length', key='min_length',
+                                    disabled=not st.session_state['remove_contigs_checkbox'],
+                                    value=1000, min_value=1, max_value=10000001, step=100)
 
         if 'genomes' in st.session_state:
             if st.button(label='Create database'):
@@ -142,14 +165,14 @@ def main():
         st.write('Here you can manage the blast databases you have created. '
                  'You can delete them or rename them.')
 
-        st.subheader('Choose databases:')
+        st.subheader('Choose database:')
         databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
         if databases:
             st.session_state['database'] = st.radio('Databases', [db.name for db in databases])
         else:
             st.info('No databases found.')
 
-        st.markdown(f'##### Rename {st.session_state["database"]} database:')
+        st.markdown(f'##### Rename {st.session_state["database"]}')
         new_name = st.text_input('New name', value=f'{st.session_state["database"]}')
         if st.button('Rename'):
             with st.empty():
