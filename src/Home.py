@@ -2,8 +2,9 @@
 # It is called by the main.py file.
 import shutil
 import streamlit as st
+from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_downloader import BlastDownloader
+from scripts.blast_downloader import BlastDownloader, DownloadError
 from scripts.utils import *
 
 
@@ -14,90 +15,70 @@ def main():
                        page_icon='🧬')
 
     st.title('BlastUI')
-    st.write('This app will let you blast a query against your own custom sequences.')
-    st.write('Here you can set up some options.')
+    st.markdown("""
+    From the [website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
+    > The Basic Local Alignment Search Tool (BLAST) finds regions of local similarity between sequences. 
+    The program compares nucleotide or protein sequences to sequence databases and calculates the 
+    statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships 
+    between sequences as well as help identify members of gene families. 
+    
+    This WebApp is a simple interface to run blast locally against your own sequences. You can then filter the 
+    results and save them in a file.
+    """)
 
     ##### 1) Install BLAST #####
-    st.subheader("1) Install BLAST")
-    st.write('Blast executables are required to run this app. If you already have them installed, you can skip '
-             'this step. You can check below if the app was able to find them or not. '
-             'In any case, you can download the latest version by clicking the corresponding button. '
-             'If you do, the executable will be saved inside the Binaries folder of this app. ')
+    st.markdown("""
+    ## Install BLAST
+    Here you can download the latest version of BLAST but if you have already installed it you can skip this step.
+    You can check below if the app was able to find it or not.
+    """)
 
-    col_path, col_binaries = st.columns([1, 1])
-    with col_path:
-        st.write('Blast executables found in this PC:')
-        for program, path in check_blast_executables():
-            if path:
-                st.write(f'✅ **{program}**: *{path}*')
-            else:
-                st.write(f'❌ **{program}**')
+    if all(check_blast_executables_in_bin()):
+        blast_version = check_blast_version(Path('Binaries/bin/blastn'))
+        st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
+                   f'button to get the latest version.')
+        use_executables_in = 'BlastUI'
 
-    with col_binaries:
-        st.write("Blast executables found in this app's folder:")
-        for program, path in check_blast_executables_in_bin():
-            if path:
-                st.write(f'✅ **{program}**: *{path}*')
-            else:
-                st.write(f'❌ **{program}**')
+    elif all(check_blast_executables()):
+        blast_version = check_blast_version(Path('blastn'))
+        st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
+                   f'button to get the latest version.')
+        use_executables_in = 'PATH'
+    else:
+        st.warning(f'Blast was not found in your computer. Click the download button to get the latest version.')
+        use_executables_in = None
 
-    col_btn, col_checkbox, *cols = st.columns([1, 2, 3])
-
-    # Make the force download appear only if the download button was clicked and the files already exists
-    force_download = False
-    if 'force_blast_download' in st.session_state:
-        force_download = st.session_state['force_blast_download']
-
-    if col_btn.button('Download blast'):
+    if st.button('Download blast'):
         pbar = st.progress(0)
 
+        download_folder = Path('./Binaries/')
+        shutil.rmtree(download_folder, ignore_errors=True)
+        download_folder.mkdir(parents=True, exist_ok=True)
+
         try:
-            BlastDownloader(force_download=force_download, pbar=pbar)
-            del st.session_state['force_blast_download']
+            BlastDownloader(pbar=pbar)
+        except DownloadError:
+            st.error('The downloaded BLAST was corrupted (hashes do not match). Try again.')
+            st.stop()
 
-        except shutil.Error as e:
-            if 'already exists' in str(e):
-                st.warning('A bin folder containing blast already exists!')
+        use_executables_in = 'BlastUI'
 
-                # Initialize the session state variable, to show the checkbox
-                st.session_state['force_blast_download'] = False
-            else:
-                raise e
+        blast_version = check_blast_version(Path('Binaries/bin/blastn'))
+        st.success(f'Blast {blast_version} was downloaded successfully!')
 
-        except OSError as e:
-            if 'already downloaded' in str(e):
-                st.warning('Blast was already downloaded! ')
+    if use_executables_in is not None:
+        configs = read_configs()
+        configs['BLAST']['use_executables_in'] = use_executables_in
+        write_configs(configs)
 
-                # Initialize the session state variable, to show the checkbox
-                st.session_state['force_blast_download'] = False
-            else:
-                raise e
+        ##### 2) Choose the database #####
+        st.header('Choose the database')
+        st.write('The next step is to create your genome database from the fasta files. You can manage your '
+                 'databases by going to the corresponding page.')
+        if st.button('Go to the database page'):
+            switch_page('Manage Genome Databases')
 
-    if 'force_blast_download' in st.session_state:
-        st.session_state['force_blast_download'] = col_checkbox.checkbox('Force download and '
-                                                                         'overwrite existing files')
 
-    # Choose which blast binaries to use and save it in the config file
-    configs = read_configs()
-    match configs['BLAST']['use_executables_in']:
-        case 'BlastUI':
-            i = 0
-        case 'PATH':
-            i = 1
-        case _:
-            i = 0
-
-    match st.radio('Use the blast binaries:', ('Downloaded with BlastUI', 'In this PC'), index=i):
-        case 'Downloaded with BlastUI':
-            configs['BLAST']['use_executables_in'] = 'BlastUI'
-        case 'In this PC':
-            configs['BLAST']['use_executables_in'] = 'PATH'
-    write_configs(configs)
-
-    ##### 2) Choose the database #####
-    st.subheader('2) Choose the database')
-    st.write('The next step is to create you genome database from the fasta files. You can manage your'
-             'databases by going to the corresponding page.')
 
 
 if __name__ == '__main__':
