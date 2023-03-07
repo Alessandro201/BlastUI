@@ -6,9 +6,10 @@ Web User Interface for blast
 - streamlit
 - streamlit-aggrid
 - streamlit-extras
+- -streamlit-option-menu
 - pandas
 
 ## Installation
 ```
-pip install pandas streamlit streamlit-aggrid streamlit-extras 
+pip install pandas streamlit streamlit-aggrid streamlit-extras streamlit-option-menu
 ```
