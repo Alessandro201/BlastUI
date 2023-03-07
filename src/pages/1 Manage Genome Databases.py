@@ -89,7 +89,23 @@ def main():
         with st.expander('DATABASE OPTIONS', expanded=expand):
 
             if 'genomes' in st.session_state:
-                st.text_input('Database name', key='new_db_name', value='my_database')
+                new_db_name = st.text_input('Database name', value='my_database')
+
+                if not new_db_name:
+                    st.error('You must enter a database name')
+                    st.stop()
+
+                # Check if the name is valid. The user could insert a path or a forbidden character
+                # which may lead to security issues
+                blast_db_dir = Path.cwd() / 'BlastDatabases'
+                test_path = Path(blast_db_dir / new_db_name).resolve()
+                unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>']
+                if test_path.parent != Path(blast_db_dir).resolve() or \
+                        any([char in str(test_path.name) for char in unallowed_chars]):
+                    st.error(f'Filename "{new_db_name}" is not valid. You cannot enter "\\/\:*?"<>|"')
+                    st.stop()
+
+                st.session_state['new_db_name'] = new_db_name
 
                 col1, col2 = st.columns(2)
 

@@ -453,8 +453,13 @@ def main():
     ###### BLAST MODE ######
     blast_modes = ["BLASTN", "BLASTP", "BLASTX", 'TBLASTN', 'TBLASTX']
     icons = ['list-task', 'list-task', "list-task", 'list-task', 'list-task']
-    st.session_state.blast_mode = option_menu('', options=blast_modes, icons=icons,
-                                              menu_icon="gear", default_index=3, orientation="horizontal").lower()
+
+    if 'blast_mode' in st.session_state:
+        default = blast_modes.index(st.session_state.blast_mode.upper())
+    else:
+        default = 3
+    st.session_state.blast_mode = option_menu('', options=blast_modes, icons=icons, menu_icon="gear",
+                                              default_index=default, orientation="horizontal").lower()
 
     ###### QUERY ######
     query = st.text_area('Insert the queries: ', placeholder="Query...", height=200).strip()
