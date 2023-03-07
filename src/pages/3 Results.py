@@ -358,6 +358,10 @@ def main():
     st.session_state.blast_response = blast_response
 
     ###### Blast results ######
+    if blast_response.df.empty:
+        st.warning('No results found!')
+        st.stop()
+
     df = blast_response.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
 
     tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'Analysis', 'About this analysis'])

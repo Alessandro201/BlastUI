@@ -49,6 +49,10 @@ class BlastResponse:
 
         # Keep only the columns we need depending on the program (blastn, blastp, etc.)
         columns = self.headers[self.program]
+        if self.whole_df.empty:
+            self.df: pd.DataFrame = pd.DataFrame()
+            return
+
         self.df: pd.DataFrame = self.whole_df[columns]
 
     @staticmethod
@@ -128,8 +132,9 @@ class BlastResponse:
             whole_df['perc_mismatches'] = np.round(whole_df['mismatch'] /
                                                    (whole_df['align_len'] - whole_df['gaps']) * 100)
 
-        whole_df['index'] = whole_df['id'].copy()
-        whole_df.set_index('index', inplace=True)
+        if not whole_df.empty:
+            whole_df['index'] = whole_df['id'].copy()
+            whole_df.set_index('index', inplace=True)
 
         return whole_df, metadata
 
