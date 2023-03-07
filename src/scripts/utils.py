@@ -4,6 +4,8 @@ import sys
 from configparser import ConfigParser
 from pathlib import Path
 import streamlit as st
+from io import BytesIO
+import pandas as pd
 
 
 class fragile(object):
@@ -69,7 +71,7 @@ def get_program_path(program_name, binaries_in='BlastUI'):
     return program_path
 
 
-def check_blast_executables():
+def check_blast_executables_in_path():
     """
     Returns a list of paths to the blast executables found in $PATH.
     If a program is not found, it returns None.
@@ -112,3 +114,39 @@ def check_blast_version(program_path: Path) -> str:
 
 def run_command(command):
     subprocess.run(command, check=True, capture_output=True, text=True)
+
+
+def generate_xlsx_table(df) -> bytes:
+    # Create a Pandas Excel writer using XlsxWriter as the engine.
+    output = BytesIO()
+    writer = pd.ExcelWriter(output, engine="xlsxwriter")
+
+    # Convert the dataframe to an XlsxWriter Excel object.
+    df.to_excel(writer, sheet_name='Sheet1', index=False, engine='xlsxwriter')
+
+    # Get the xlsxwriter workbook and worksheet objects.
+    workbook = writer.book
+    worksheet = writer.sheets['Sheet1']
+
+    # Get the dimensions of the dataframe.
+    (max_row, max_col) = df.shape
+
+    # Create a list of column headers, to use in add_table().
+    column_settings = []
+    for header in df.columns:
+        column_settings.append({'header': header})
+
+    # Add the table.
+    worksheet.add_table(0, 0, max_row, max_col - 1, {'columns': column_settings, 'style': 'Table Style Medium 11'})
+
+    # Make the columns wider for clarity.
+    worksheet.set_column(0, max_col - 1, 12)
+
+    # Autofit columns
+    worksheet.autofit()
+
+    # Close the Pandas Excel writer and output the Excel file.
+    writer.close()
+    output.seek(0)
+
+    return output.getvalue()

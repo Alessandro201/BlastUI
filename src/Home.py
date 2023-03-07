@@ -37,7 +37,7 @@ def main():
                    f'button to get the latest version.')
         use_executables_in = 'BlastUI'
 
-    elif all(check_blast_executables()):
+    elif all(check_blast_executables_in_path()):
         blast_version = check_blast_version(Path('blastn'))
         st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
                    f'button to get the latest version.')
@@ -75,8 +75,6 @@ def main():
                  'databases by going to the corresponding page.')
         if st.button('Go to the database page'):
             switch_page('Manage Genome Databases')
-
-
 
 
 if __name__ == '__main__':

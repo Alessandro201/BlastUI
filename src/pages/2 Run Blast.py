@@ -495,7 +495,6 @@ def main():
                                           threads=st.session_state['threads'],
                                           **st.session_state['advanced_options'])
 
-
                 st.session_state['blast_output_file'] = blast_output_file
 
         except subprocess.CalledProcessError as e:

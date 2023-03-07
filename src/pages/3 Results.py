@@ -11,10 +11,12 @@ import streamlit.components.v1 as components
 import streamlit as st
 from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
 from streamlit_option_menu import option_menu
+from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
 from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_response import *
 from scripts.utils import *
+from scripts.analysis import find_strain_with_multiple_hits, find_alignments_with_stop_codons
 
 from io import BytesIO
 
@@ -34,11 +36,6 @@ def extract_indexes(selected: list):
 
 
 def download_table_xlsx():
-    output = BytesIO()
-
-    # By setting the 'engine' in the ExcelWriter constructor.
-    writer = pd.ExcelWriter(output, engine="xlsxwriter")
-
     grid_df: pd.DataFrame = st.session_state['grid_df']
     if grid_df.empty:
         return 'No rows to show'.encode('utf-8')
@@ -48,36 +45,8 @@ def download_table_xlsx():
     df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
     df = df.drop(columns=['id', 'query_id'])
 
-    # Convert the dataframe to an XlsxWriter Excel object.
-    df.to_excel(writer, sheet_name='Sheet1', index=False, engine='xlsxwriter')
-
-    # Get the xlsxwriter workbook and worksheet objects.
-    workbook = writer.book
-    worksheet = writer.sheets['Sheet1']
-
-    # Get the dimensions of the dataframe.
-    (max_row, max_col) = df.shape
-
-    # Create a list of column headers, to use in add_table().
-    column_settings = []
-    for header in df.columns:
-        column_settings.append({'header': header})
-
-    # Add the table.
-    worksheet.add_table(0, 0, max_row, max_col - 1, {'columns': column_settings, 'style': 'Table Style Medium 11'})
-
-    # Make the columns wider for clarity.
-    worksheet.set_column(0, max_col - 1, 12)
-
-    # Autofit columns
-    worksheet.autofit()
-
-    # Close the Pandas Excel writer and output the Excel file.
-    writer.close()
-    output.seek(0)
-
     filename = 'blast.xlsx'
-    data = output.getvalue()
+    data = generate_xlsx_table(df)
     components.html(html_download(data, filename), height=None, width=None)
 
 
@@ -390,8 +359,8 @@ def main():
     ###### Blast results ######
     df = blast_response.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
 
-    tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'About this analysis'])
-    tab_table, tab_alignments, tab_graphic_summary, tab_about = tabs
+    tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'Analysis', 'About this analysis'])
+    tab_table, tab_alignments, tab_graphic_summary, tab_analysis, tab_about = tabs
 
     with fragile(tab_table):
 
@@ -528,6 +497,21 @@ def main():
 
         st.bokeh_chart(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
                        use_container_width=True)
+
+    with fragile(tab_analysis):
+        if grid_df.empty:
+            st.warning('No hits to analyze')
+            raise fragile.Break()
+
+        analysis_choices = ['Find strain with multiple hits for the same query',
+                            'Find strain with stop codons inside the alignment',]
+
+        choice = ndf_selectbox('Select the analysis you want to perform:', options=analysis_choices)
+
+        if choice == 'Find strain with multiple hits for the same query':
+            find_strain_with_multiple_hits.analyze(grid_df, container=st)
+        elif choice == 'Find strain with stop codons inside the alignment':
+            find_alignments_with_stop_codons.analyze(grid_df, container=st)
 
     with tab_about:
 
