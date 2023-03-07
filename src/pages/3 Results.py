@@ -305,6 +305,7 @@ def show_blast_errors():
 
 def choose_analysis_to_load() -> BlastResponse:
     # .iterdir() returns a generator, and sorted() has the side effect of consuming the generator.
+    Path('./Analysis/').mkdir(parents=True, exist_ok=True)
     analysis_outputs = Path('./Analysis/').iterdir()
     analysis_outputs = sorted(analysis_outputs, reverse=True)
 
