@@ -172,9 +172,11 @@ def main():
             st.session_state['database'] = st.radio('Databases', [db.name for db in databases])
         else:
             st.info('No databases found.')
+            st.stop()
 
         st.markdown(f'##### Rename {st.session_state["database"]}')
         new_name = st.text_input('New name', value=f'{st.session_state["database"]}')
+
         if st.button('Rename'):
             with st.empty():
                 old_db_path = Path(Path().cwd(), 'BlastDatabases', st.session_state['database'])
