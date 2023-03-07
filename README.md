@@ -8,6 +8,7 @@ Web User Interface for blast
 - streamlit-extras
 - streamlit-option-menu
 - pandas
+- bokeh 2.4.3 no dependencies
 
 ## Installation
 If you have conda
