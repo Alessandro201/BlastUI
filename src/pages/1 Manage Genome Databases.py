@@ -13,8 +13,8 @@ from streamlit_extras.stoggle import stoggle
 
 def save_uploads_to_disk(genomes: list[GenomeData], location: Path):
     for genome in genomes:
-        with open(location / genome.genome_name, 'w') as f:
-            f.write(genome.genome_str)
+        with open(location / genome.name, 'w') as f:
+            f.write(genome.genome)
 
 
 def read_genomes(uploaded_files) -> list[GenomeData]:

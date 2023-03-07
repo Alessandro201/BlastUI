@@ -1,26 +1,21 @@
-from multiprocessing import cpu_count
-
 import base64
-import shlex
 import pandas as pd
-import shutil
-import subprocess
-import sys
+import os
 import base64
-from datetime import datetime
+import json
 from math import ceil
-from pathlib import PurePath
+from pathlib import PurePath, Path
+from typing import Union
 
-import streamlit as st
 import streamlit.components.v1 as components
-from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode, GridUpdateMode, JsCode
+import streamlit as st
+from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
 from streamlit_option_menu import option_menu
 from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_response import *
 from scripts.utils import *
 
-from timebudget import timebudget
 from io import BytesIO
 
 
@@ -38,61 +33,34 @@ def extract_indexes(selected: list):
     return zip(*indexes)
 
 
-def set_download_buttons(container=None):
-    if not container:
-        container = st
-
-    col1, col2, col3, *_ = container.columns([1, 1, 1, 1])
-
-    # Downloads the whole table
-    with col1:
-        st.download_button(
-            label="Table as XLSX",
-            data=download_table_xlsx(),
-            file_name='blast.xlsx',
-            mime='text/xlsx',
-            use_container_width=True)
-
-    # Downloads only selected rows
-    with col2:
-        st.download_button(
-            label='Table as CSV',
-            data=download_table_csv(),
-            file_name='blast.tsv',
-            mime='text/tsv',
-            use_container_width=True)
-
-    # Download all alignments
-    with col3:
-        st.download_button(
-            label="FASTA (hits sequences)",
-            data=download_aligned_sequences(),
-            file_name='blast.tsv',
-            mime='text/tsv',
-            use_container_width=True)
-
-
 def download_table_xlsx():
     output = BytesIO()
 
     # By setting the 'engine' in the ExcelWriter constructor.
     writer = pd.ExcelWriter(output, engine="xlsxwriter")
 
-    grid_df: pd.DataFrame = st.session_state['grid_df'].drop(columns=['id', 'query_id'])
+    grid_df: pd.DataFrame = st.session_state['grid_df']
+    if grid_df.empty:
+        return 'No rows to show'.encode('utf-8')
+
+    # Add hseq column to grid_df from blast_response.whole_df
+    whole_df = st.session_state.blast_response.whole_df
+    df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
+    df = df.drop(columns=['id', 'query_id'])
 
     # Convert the dataframe to an XlsxWriter Excel object.
-    grid_df.to_excel(writer, sheet_name='Sheet1', index=False, engine='xlsxwriter')
+    df.to_excel(writer, sheet_name='Sheet1', index=False, engine='xlsxwriter')
 
     # Get the xlsxwriter workbook and worksheet objects.
     workbook = writer.book
     worksheet = writer.sheets['Sheet1']
 
     # Get the dimensions of the dataframe.
-    (max_row, max_col) = grid_df.shape
+    (max_row, max_col) = df.shape
 
     # Create a list of column headers, to use in add_table().
     column_settings = []
-    for header in grid_df.columns:
+    for header in df.columns:
         column_settings.append({'header': header})
 
     # Add the table.
@@ -107,23 +75,44 @@ def download_table_xlsx():
     # Close the Pandas Excel writer and output the Excel file.
     writer.close()
     output.seek(0)
-    return output.getvalue()
+
+    filename = 'blast.xlsx'
+    data = output.getvalue()
+    components.html(html_download(data, filename), height=None, width=None)
 
 
 def download_table_csv():
     grid_df: pd.DataFrame = st.session_state['grid_df']
-    table_data: bytes = grid_df.to_csv(index=False).encode()
-    return table_data
+    if grid_df.empty:
+        return 'No rows to show'.encode('utf-8')
+
+    # Add hseq column to grid_df from blast_response.whole_df
+    whole_df = st.session_state.blast_response.whole_df
+    df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
+    df = df.drop(columns=['id', 'query_id'])
+
+    table_data: bytes = df.to_csv(index=False).encode('utf-8')
+
+    filename = 'blast.tsv'
+    components.html(html_download(table_data, filename), height=None, width=None)
 
 
-def download_aligned_sequences():
+def download_hit_sequences():
     def get_header(strain, node, query_title):
         return f">{strain}_NODE_{node};{query_title}"
 
-    df: pd.DataFrame = st.session_state['grid_df'][['strain', 'node', 'query_title', 'sseq']]
+    grid_df: pd.DataFrame = st.session_state.grid_df
+    whole_df: pd.DataFrame = st.session_state.blast_response.whole_df
+
+    if grid_df.empty:
+        return 'No rows to show'
+
+    df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
+    df = df.drop(columns=['id'])
+
     df.insert(0, 'headers', df[['strain', 'node', 'query_title']].apply(lambda x: get_header(*x), axis=1))
     headers: list[str] = df['headers'].to_list()
-    sequences: list[str] = st.session_state['grid_df']['sseq'].to_list()
+    sequences: list[str] = df['hseq'].to_list()
 
     lines = list()
     for header, sequence in zip(headers, sequences):
@@ -131,7 +120,94 @@ def download_aligned_sequences():
         # Split the sequence in lines of 60 characters
         lines.append('\n'.join([sequence[i:i + 60] for i in range(0, len(sequence), 60)]))
 
-    return '\n'.join(lines)
+    lines = '\n'.join(lines).encode('utf-8')
+    filename = 'hits_sequences.fasta'
+    components.html(html_download(lines, filename), height=None, width=None)
+
+
+def download_all_alignments():
+    grid_df = st.session_state.grid_df
+    blast_response = st.session_state.blast_response
+
+    alignments = blast_response.alignments(indexes=grid_df['id'])
+    alignments = '\n\n\n\n'.join(alignments).encode('utf-8')
+
+    filename = 'alignments.txt'
+    components.html(html_download(alignments, filename), height=None, width=None)
+
+
+def html_download(object_to_download: Union[str, bytes], download_filename):
+    """
+    Generates a link to download the given object_to_download.
+    Params:
+    ------
+    object_to_download:  The object to be downloaded.
+    download_filename (str): filename and extension of file. e.g. mydata.csv,
+    Returns:
+    -------
+    (str): the anchor tag to download object_to_download
+    """
+
+    ext = PurePath(download_filename).suffix
+
+    match object_to_download:
+        case bytes():
+            bytes_object = object_to_download
+        case str():
+            bytes_object = object_to_download.encode()
+        case _:
+            # try to dump the object to json
+            object_to_download = json.dumps(object_to_download)
+            bytes_object = object_to_download.encode()
+
+    try:
+        # some strings <-> bytes conversions necessary here
+        b64 = base64.b64encode(bytes_object).decode()
+
+    except AttributeError as e:
+        b64 = base64.b64encode(object_to_download).decode()
+
+    dl_link = f"""
+        <script src="http://code.jquery.com/jquery-3.2.1.min.js"></script>
+        <script>
+        $('<a href="data:text/{ext};base64,{b64}" download="{download_filename}">')[0].click()
+        </script>
+        """
+    return dl_link
+
+
+def set_download_buttons(container=None):
+    if not container:
+        container = st
+
+    col1, col2, col3, col4 = container.columns([1, 1, 1, 1])
+
+    # Downloads the whole table
+    with col1:
+        st.button(
+            label="Table as XLSX",
+            on_click=download_table_xlsx,
+            use_container_width=True)
+
+    # Downloads only selected rows
+    with col2:
+        st.button(
+            label='Table as CSV',
+            on_click=download_table_csv,
+            use_container_width=True)
+
+    # Download all alignments
+    with col3:
+        st.button(
+            label="FASTA (hit sequences)",
+            on_click=download_hit_sequences,
+            use_container_width=True)
+
+    with col4:
+        st.button(
+            label="TEXT (all alignments)",
+            on_click=download_all_alignments,
+            use_container_width=True)
 
 
 def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
@@ -151,9 +227,6 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
     gb.configure_columns(['query_title', 'strain', 'node'], aggFunc='count')
     gb.configure_column('id', hide=True)
     gb.configure_column('query_id', hide=True)
-
-    if df.sseq.str.len().max() >= 200:
-        gb.configure_column('sseq', hide=True)
 
     gb.configure_side_bar()
 
@@ -236,6 +309,9 @@ def sidebar_options():
         for key in st.session_state.keys():
             del st.session_state[key]
 
+        st.session_state['perc_identity'] = 60.0
+        st.session_state['perc_alignment'] = 50.0
+
     if st.sidebar.button("Clear analysis folder"):
         st.sidebar.warning('All the analysis files will be deleted!')
 
@@ -251,14 +327,51 @@ def sidebar_options():
         del st.session_state['analysis_folder_cleared']
 
 
-def show_alignments(alignments, start, container=None):
-    if container is None:
-        container = st
+def show_blast_errors():
+    blast_response = st.session_state.blast_response
 
-    for i, alignment in enumerate(alignments):
-        num_col, alignments_col = container.columns([1, 10])
-        num_col.subheader(f"{start + i + 1})")
-        alignments_col.code(alignment)
+    for message in blast_response.messages:
+        st.warning(message)
+
+
+def choose_analysis_to_load() -> BlastResponse:
+    # .iterdir() returns a generator, and sorted() has the side effect of consuming the generator.
+    analysis_outputs = Path('./Analysis/').iterdir()
+    analysis_outputs = sorted(analysis_outputs, reverse=True)
+
+    if not analysis_outputs:
+        st.warning('Please run a BLAST search first in "Run Blast" page.')
+
+        if st.button('Go to "Run Blast" page'):
+            switch_page('Run Blast')
+
+        st.stop()
+
+    # Remove queries from results
+    analysis_outputs = [file for file in analysis_outputs if '_query.fasta' not in str(file)]
+    analysis_outputs = [file.name for file in analysis_outputs]
+
+    # add '### LAST ###' as prefix to the first element
+    analysis_outputs[0] = '### LAST ### ' + analysis_outputs[0]
+
+    json_to_load = st.selectbox('Select which analysis to load. Default: last', options=analysis_outputs, index=0,
+                                format_func=lambda x: os.path.splitext(x)[0])
+
+    # Remove the prefix
+    if '### LAST ### ' in json_to_load:
+        json_to_load = json_to_load.replace('### LAST ### ', '')
+
+    json_to_load = Path('./Analysis/') / json_to_load
+
+    try:
+        with st.spinner('Loading analysis...'):
+            blast_response = load_analysis(json_to_load)
+
+    except json.JSONDecodeError:
+        st.error('The selected file is not a valid JSON file! Probably the BLAST search did not finish correctly.')
+        st.stop()
+
+    return blast_response
 
 
 def main():
@@ -271,179 +384,229 @@ def main():
 
     st.title('Blast results!')
 
-    if 'df' not in st.session_state or 'BlastResponse' not in st.session_state:
-        st.warning('Please run a BLAST search first in "Run Blast" page.')
-
-        if st.button('Go to "Run Blast" page'):
-            switch_page('Run Blast')
-
-        if st.button('Reaload last Blast search'):
-            result_files = list()
-            for file in Path('./Analysis/').iterdir():
-                if 'query.fasta' not in file.name:
-                    result_files.append(file)
-
-            last_analysis = sorted(result_files, reverse=True)
-            if len(last_analysis) == 0:
-                st.warning('No previous analysis found!')
-                st.stop()
-
-            last_analysis = last_analysis[0]
-            st.session_state['BlastResponse'] = BlastResponse(json_file=last_analysis)
-            st.session_state['df'] = st.session_state['BlastResponse'].df
-            st.experimental_rerun()
-
-        st.stop()
+    blast_response = choose_analysis_to_load()
+    st.session_state.blast_response = blast_response
 
     ###### Blast results ######
-    if 'df' in st.session_state:
-        blast_response: BlastResponse = st.session_state['BlastResponse']
-        df = blast_response.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
+    df = blast_response.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
 
-        tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'About this analysis'])
-        tab_table, tab_alignments, tab_graphic_summary, tab_about = tabs
+    tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'About this analysis'])
+    tab_table, tab_alignments, tab_graphic_summary, tab_about = tabs
 
-        with tab_table:
+    with fragile(tab_table):
 
-            st.subheader('Download')
-            dowmload_container = st.empty()
+        st.subheader('Download')
+        download_container = st.empty()
 
-            # tab_description, *_ = st.tabs(['How to work with the table'])
-
-            tab_description = st.expander('How to work with the table', expanded=False)
-            with tab_description:
-                st.markdown("""
-                ##### 1) Main features
-                You can work with this table in a similar fashion as you would do with a spreadsheet.
-                You can sort columns, and filter/aggregate the data by hovering on them and 
-                clicking on the menu icon that appears. Alternatively, you can perform the same steps with the 
-                vertical tabs on the right.
-                
-                
-                ##### 1.1) Example
-                For example, you can group by *"Strain"* to see how many hits each strain has, and click on the
-                *"count(query_title)"* column to sort it. It's very useful if you want to quickly find multiple
-                matches for the same strain, like in a search for a duplicate gene.
-                
-                ##### 2) Selecting rows
-                You can select rows by clicking on them. To select multiple rows, press *ctrl* while clicking, or
-                click on a row and while pressing *shift* click another one to select all the rows in between.
-                To reset any filtering, sorting, aggregation or selection you can click again on the *reset table*
-                button just below the table on the right.
-                
-                """)
-
-            aggrid_options: dict = load_aggrid_options(df)
-            grid = AgGrid(df, **aggrid_options)
-
-            grid_df = grid['data']
-            selected = grid['selected_rows']
-
-            st.session_state['grid_df'] = grid_df
-            st.session_state['selected'] = selected
-
-            st.write(f"Found {grid_df.shape[0]} results")
-
-            set_download_buttons(dowmload_container)
-
-            # Show alignments of selected rows
-            if selected:
-                row_alignments = list()
-                row_indexes, match_ids = extract_indexes(selected)
-                row_indexes = row_indexes[:50]
-                match_ids = match_ids[:50]
-                alignments = blast_response.alignments(indexes=match_ids)
-
-                st.session_state['row_alignments'] = '\n'.join(row_alignments)
-
-                if row_indexes:
-                    st.subheader(f"Showing alignments for {len(row_indexes)} selected rows")
-
-                for row, alignment in zip(row_indexes, alignments):
-                    num_col, alignments_col = st.columns([1, 10])
-
-                    try:
-                        num_col.subheader(f"{row + 1})")
-                    except TypeError:
-                        num_col.subheader(f"#)")
-                    alignments_col.code(alignment)
-
-        with fragile(tab_alignments):
-
-            if df.sseq.str.len().max() >= 1000:
-                st.info("The alignments are too long to be displayed. If you want to check some, select the row from "
-                        "the table and it will be shown underneath. If you want to see all the alignments "
-                        "please download them by clicking the button in the Table tab. "
-                        "It may take a few second to download them.")
-                raise fragile.Break()  # exit with statement
-
-            items_per_page = 50
-            n_rows = grid_df.shape[0]
-            n_pages = ceil(n_rows / items_per_page)  # Round UP
-            selectbox_options = [f'{j * items_per_page + 1} - {min((j + 1) * items_per_page, n_rows)}' for j
-                                 in range(n_pages)]
-            page = st.selectbox('Page', selectbox_options, index=0)
-
-            if not page:
-                st.warning('No alignments to show')
-                raise fragile.Break()  # exit with statement
-
-            start, end = page.split(' - ')
-            start, end = int(start) - 1, int(end)
-            indexes = grid_df['id'][start:end]
-            alignments = blast_response.alignments(indexes=indexes)
-
-            download_btn = st.container()
-
-            show_alignments(alignments, start)
-
-            download_btn.download_button(
-                label="Download alignments in this page",
-                data='\n'.join(alignments),
-                file_name=f'alignments_{page}.txt',
-                mime='text',
-                key='alignments_download_button2')
-
-        with tab_graphic_summary:
-
-            # {query_id1: query_title1, ...}
-            queries: dict = blast_response.queries
-
-            # Show query titles as options but return the query ids
-            st.selectbox('Select the query:',
-                         options=queries.keys(), key='query_selectbox', format_func=lambda x: queries[x])
-
-            indexes = grid_df[grid_df['query_id'] == st.session_state['query_selectbox']]['id']
-
-            if not list(indexes):
-                st.info('No alignments to show')
-                st.stop()
-
-            max_hits = 200
-            st.subheader(f'Distribution of the top {min(max_hits, len(indexes))} Hits')
-
-            st.bokeh_chart(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
-                           use_container_width=True)
-
-        with tab_about:
-            st.markdown(f"""
-            Analysis made with {blast_response.json['BlastOutput2'][0]['report']['version']}
+        tab_description = st.expander('How to work with the table', expanded=False)
+        with tab_description:
+            st.markdown("""
+            ##### 1) Main features
+            You can work with this table in a similar fashion as you would do with a spreadsheet.
+            You can sort columns, and filter/aggregate the data by hovering on them and 
+            clicking on the menu icon that appears. Alternatively, you can perform the same steps with the 
+            vertical tabs on the right.
             
-            #### Reference: 
-            {blast_response.json['BlastOutput2'][0]['report']['reference']} 
             
-            #### Options:
-            **Database**: {blast_response.json['BlastOutput2'][0]['report']['search_target']['db']}
+            ##### 1.1) Example
+            For example, you can group by *"Strain"* to see how many hits each strain has, and click on the
+            *"count(query_title)"* column to sort it. It's very useful if you want to quickly find multiple
+            matches for the same strain, like in a search for a duplicate gene.
             
-            **Matrix**: {blast_response.json['BlastOutput2'][0]['report']['params']['matrix']}\n
-            **Gap penalty**: Existence: {blast_response.json['BlastOutput2'][0]['report']['params']['gap_open']} 
-            Extension: {blast_response.json['BlastOutput2'][0]['report']['params']['gap_extend']}\n
-            **Filter**: {blast_response.json['BlastOutput2'][0]['report']['params']['filter']}\n
-            **CBS**: {blast_response.json['BlastOutput2'][0]['report']['params']['cbs']}\n
-            **DB Gencode**: {blast_response.json['BlastOutput2'][0]['report']['params']['db_gencode']}\n
+            ##### 2) Selecting rows
+            You can select rows by clicking on them. To select multiple rows, press *ctrl* while clicking, or
+            click on a row and while pressing *shift* click another one to select all the rows in between.
+            To reset any filtering, sorting, aggregation or selection you can click again on the *reset table*
+            button just below the table on the right.
+            
             """)
 
-            query_text = Path('Analysis/query.fasta').read_text()
+        if df.shape[0] > 100_000:
+            st.warning(f'The table has {df.shape[0]} rows. The program may take a few seconds to '
+                       f'load or may even crash.')
+
+        aggrid_options: dict = load_aggrid_options(df)
+        grid = AgGrid(df, **aggrid_options)
+
+        grid_df = grid['data']
+        selected = grid['selected_rows']
+
+        st.session_state['grid_df'] = grid_df
+        st.session_state['selected'] = selected
+
+        st.write(f"Found {grid_df.shape[0]} results")
+
+        set_download_buttons(download_container)
+
+        # Show alignments of selected rows
+        if selected:
+            # Extract indexes in the order shown in the grid
+            row_alignments = list()
+            row_indexes, indexes = extract_indexes(selected)
+            row_indexes = row_indexes[:50]
+            indexes = pd.Series(indexes[:50])
+
+            alignments = blast_response.alignments(indexes=indexes)
+
+            if row_indexes:
+                st.subheader(f"Showing alignments for {len(row_indexes)} selected rows")
+
+            whole_df = blast_response.whole_df
+            for row, index, alignment in zip(row_indexes, indexes, alignments):
+                num_col, alignments_col = st.columns([1, 10])
+
+                try:
+                    num_col.subheader(f"{row + 1})")
+                except TypeError:
+                    num_col.subheader(f"#)")
+
+                if whole_df.iloc[[index]].hseq.str.len().max() > 1000:
+                    alignments_col.info("The alignment is too long to be displayed. If you want to see even "
+                                        "long alignments please download them all by clicking the button above "
+                                        "the table.")
+                    continue
+
+                alignments_col.code(alignment)
+
+    with fragile(tab_alignments):
+
+        if grid_df.empty:
+            st.warning('No alignments to show')
+            raise fragile.Break()  # exit with statement
+
+        items_per_page = 50
+        n_rows = grid_df.shape[0]
+        n_pages = ceil(n_rows / items_per_page)  # Round UP
+        selectbox_options = [f'{j * items_per_page + 1} - {min((j + 1) * items_per_page, n_rows)}' for j
+                             in range(n_pages)]
+        page = st.selectbox('Page', selectbox_options, index=0)
+
+        start, end = page.split(' - ')
+        start, end = int(start) - 1, int(end)
+        indexes = grid_df['id'][start:end]
+
+        alignments = blast_response.alignments(indexes=indexes)
+
+        whole_df = blast_response.whole_df
+        for i, index_alignment in enumerate(zip(indexes, alignments)):
+            index, alignment = index_alignment
+            num_col, alignments_col = st.columns([1, 10])
+
+            num_col.subheader(f"{start + i + 1})")
+
+            if whole_df.iloc[[index]].hseq.str.len().max() > 1000:
+                alignments_col.info("The alignment is too long to be displayed. If you want to see even "
+                                    "long alignments please download them all by clicking the button above "
+                                    "the table.")
+                continue
+
+            alignments_col.code(alignment)
+
+    with fragile(tab_graphic_summary):
+
+        if grid_df.empty:
+            st.warning('No alignments to show')
+            raise fragile.Break()
+
+        # [{'query_id1': str, 'query_title': str, 'query_len': int}, ...]
+        queries: list[dict] = blast_response.metadata['queries']
+        queries: dict = {query['query_id']: query['query_title'] for query in queries}
+
+        # Show query titles as options but return the query ids
+        st.selectbox('Select the query:',
+                     options=queries.keys(), key='query_selectbox', format_func=lambda x: queries[x])
+
+        indexes = grid_df[grid_df['query_id'] == st.session_state['query_selectbox']]['id']
+
+        if not list(indexes):
+            st.info('No alignments to show')
+            st.stop()
+
+        max_hits = 200
+        st.subheader(f'Distribution of the top {min(max_hits, len(indexes))} Hits')
+        st.write('Sorted by Evalue and alignment percentage')
+
+        st.bokeh_chart(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
+                       use_container_width=True)
+
+    with tab_about:
+
+        program = blast_response.program
+        program_and_version = blast_response.metadata['version']
+        metadata = blast_response.metadata
+        params = blast_response.metadata['params']
+
+        if program == 'blastn':
+            results_params = f"""
+            **Evalue**: {params['expect']}\n
+            **Gap penalty**: Existence: {params['gap_open']} 
+            Extension: {params['gap_extend']}\n
+            **Reward/Penalty**: Match: {params['sc_match']} 
+            Mismatch: {params['sc_mismatch']}\n
+            **Filter**: {params['filter']}\n
+            """
+
+        elif program == 'blastp':
+            results_params = f"""
+            **Matrix**: {params['matrix']}\n
+            **Evalue**: {params['expect']}\n
+            **Gap penalty**: Existence: {params['gap_open']} 
+            Extension: {params['gap_extend']}\n
+            **Filter**: {params['filter']}\n
+            **Composition-based statistics**: {params['cbs']}\n
+            """
+
+        elif program == 'blastx':
+            results_params = f"""
+            **Matrix**: {params['matrix']}\n
+            **Evalue**: {params['expect']}\n
+            **Gap penalty**: Existence: {params['gap_open']} 
+            Extension: {params['gap_extend']}\n
+            **Filter**: {params['filter']}\n
+            **Composition-based statistics**: {params['cbs']}\n
+            **Query Gencode**: {params['query_gencode']}\n
+            """
+
+        elif program == 'tblastn':
+            results_params = f"""
+            **Matrix**: {params['matrix']}\n
+            **Evalue**: {params['expect']}\n
+            **Gap penalty**: Existence: {params['gap_open']} 
+            Extension: {params['gap_extend']}\n
+            **Filter**: {params['filter']}\n
+            **Database Gencode**: {params['db_gencode']}\n
+            """
+
+        elif program == 'tblastx':
+            results_params = f"""
+            
+            **Matrix**: {params['matrix']}\n
+            **Evalue**: {params['expect']}\n
+            **Filter**: {params['filter']}\n
+            **Query Gencode**: {params['query_gencode']}\n
+            **Database Gencode**: {params['db_gencode']}\n
+            
+            """
+
+        else:
+            results_params = ''
+
+        st.markdown(f"""
+            ## Analysis made with {program_and_version}
+        
+            #### Reference: 
+            {metadata['reference']} 
+        
+            #### Options:
+            {results_params}
+            
+            ---
+            """)
+
+        # try to look for the file containing the query
+        try:
+            query_file = str(blast_response.json_file).replace('_results.json', '_query.fasta')
+            query_text = Path(query_file).read_text()
             query_seqs = query_text.split('>')[1:]
 
             st.download_button(
@@ -452,14 +615,19 @@ def main():
                 file_name='query.fasta',
                 mime='text/fasta')
 
-            for index, report in enumerate(blast_response.reports):
-                st.markdown(f"""
-                #### Query {index + 1}:
-                **Query id**: {report['results']['search']['query_id']}\n
-                **Query title**: {report['results']['search']['query_title']}\n
-                **Query length**: {report['results']['search']['query_len']}""")
+        except FileNotFoundError:
+            st.info('The file containing the query sequences was not found')
 
-                if report['results']['search']['query_len'] < 1000:
+        for index, query in enumerate(blast_response.metadata['queries']):
+            st.markdown(f"""
+            #### Query {index + 1}:
+            **Query id**: {query['query_id']}\n
+            **Query title**: {query['query_title']}\n
+            **Query length**: {query['query_len']}""")
+
+            # if the file containing the query doesn't exist, an error is raised
+            try:
+                if query['query_len'] < 1000:
                     header, seq = query_seqs[index].split('\n', maxsplit=1)
 
                     seq = seq.replace('\n', '')
@@ -469,6 +637,8 @@ def main():
                     st.code(f">{header}\n{seq}")
                 else:
                     st.markdown('*The sequence is too long to be shown here. You can download it instead*')
+            except (IndexError, UnboundLocalError):
+                pass
 
 
 if __name__ == "__main__":

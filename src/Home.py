@@ -1,7 +1,5 @@
 # Description: This file is the entry point of streamlit for the application.
 # It is called by the main.py file.
-import shutil
-import streamlit as st
 from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_downloader import BlastDownloader, DownloadError

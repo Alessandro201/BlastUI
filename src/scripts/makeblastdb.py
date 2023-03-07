@@ -140,3 +140,4 @@ class MakeBlastDB:
             run_command(command)
         finally:
             self.multifasta.unlink()
+
