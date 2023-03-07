@@ -12,5 +12,5 @@ Web User Interface for blast
 ## Installation
 ```
 git pull https://github.com/Alessandro201/BlastUI/
-pip install pandas streamlit streamlit-aggrid streamlit-extras streamlit-option-menu
+pip install pandas streamlit streamlit-aggrid streamlit-extras streamlit-option-menu bokeh
 ```
