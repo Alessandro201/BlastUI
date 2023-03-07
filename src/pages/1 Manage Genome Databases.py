@@ -77,7 +77,7 @@ def main():
         st.write('Upload the genomes you want to use. To clear the list, just refresh the page.')
 
         st.session_state['genomes'] = list()
-        uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa", 'fa'], accept_multiple_files=True)
         if uploaded_files:
             with st.spinner('Reading files...'):
                 st.session_state['genomes'] = read_genomes(uploaded_files)
@@ -104,7 +104,7 @@ def main():
                             """
                             Blast requires that the headers of the fasta files are unique. If you have 
                             uploaded genomes with repeated headers, you can choose to rename them. 
-                            Each contig will be renamed as follows: "[genome_name]\_NODE\_[contig_number]" so 
+                            Each contig will be renamed as follows: "[genome_name]_NODE_[contig_number]" so 
                             be sure to not upload genomes with the same name. </br></br>
                             If you have uploaded multifasta files of annotated proteins you should avoid 
                             removing small contigs, as you may remove actual proteins. 
@@ -166,14 +166,17 @@ def main():
                  'You can delete them or rename them.')
 
         st.subheader('Choose database:')
+        Path(Path().cwd(), 'BlastDatabases').mkdir(exist_ok=True, parents=True)
         databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
         if databases:
             st.session_state['database'] = st.radio('Databases', [db.name for db in databases])
         else:
             st.info('No databases found.')
+            st.stop()
 
         st.markdown(f'##### Rename {st.session_state["database"]}')
         new_name = st.text_input('New name', value=f'{st.session_state["database"]}')
+
         if st.button('Rename'):
             with st.empty():
                 old_db_path = Path(Path().cwd(), 'BlastDatabases', st.session_state['database'])
