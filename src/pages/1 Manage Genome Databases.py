@@ -77,7 +77,7 @@ def main():
         st.write('Upload the genomes you want to use. To clear the list, just refresh the page.')
 
         st.session_state['genomes'] = list()
-        uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa"], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa", 'fa'], accept_multiple_files=True)
         if uploaded_files:
             with st.spinner('Reading files...'):
                 st.session_state['genomes'] = read_genomes(uploaded_files)
@@ -166,6 +166,7 @@ def main():
                  'You can delete them or rename them.')
 
         st.subheader('Choose database:')
+        Path(Path().cwd(), 'BlastDatabases').mkdir(exist_ok=True, parents=True)
         databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
         if databases:
             st.session_state['database'] = st.radio('Databases', [db.name for db in databases])
