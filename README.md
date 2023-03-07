@@ -6,7 +6,7 @@ Web User Interface for blast
 - streamlit
 - streamlit-aggrid
 - streamlit-extras
-- -streamlit-option-menu
+- streamlit-option-menu
 - pandas
 
 ## Installation
