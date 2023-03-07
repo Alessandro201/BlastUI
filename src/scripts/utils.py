@@ -3,7 +3,7 @@ import subprocess
 import sys
 from configparser import ConfigParser
 from pathlib import Path
-from typing import Generator, Union
+import streamlit as st
 
 
 class fragile(object):
@@ -56,11 +56,11 @@ def get_program_path(program_name, binaries_in='BlastUI'):
     if binaries_in == 'BlastUI':
         match sys.platform:
             case 'linux' | 'linux2' | 'darwin':
-                program_path = PAth('./Binaries/bin') / program_name
+                program_path = Path('./Binaries/bin') / program_name
             case 'win32':
                 program_path = Path('./Binaries/bin') / (program_name + '.exe')
             case _:
-                raise OSError(f'Your platform ({platform}) is not supported, there are no blast executables '
+                raise OSError(f'Your platform ({sys.platform}) is not supported, there are no blast executables '
                               f'for your Operating System.')
 
     if not Path(program_path).exists():
