@@ -1,5 +1,5 @@
 # BlastUI
-From the [website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
+From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
 > The Basic Local Alignment Search Tool (BLAST) finds regions of local similarity between sequences. 
 The program compares nucleotide or protein sequences to sequence databases and calculates the 
 statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships 
