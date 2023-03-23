@@ -1,6 +1,5 @@
 import hashlib
 import shutil
-import streamlit as st
 import sys
 import os
 import tarfile
@@ -136,8 +135,7 @@ class BlastDownloader:
     def download(self):
         self.file_handle = open(self.download_path, 'wb')
         try:
-            self.ftp.retrbinary("RETR " + self.filename, self._write_file, blocksize=262144)
-            self.pbar.progress(100, text=f'Downloading MD5 hash...')
+            self.ftp.retrbinary("RETR " + self.filename, self._write_file, blocksize=8*1024)
             self.ftp.retrbinary("RETR " + self.md5filename, Path(self.md5_download_path).write_bytes)
         finally:
             self.file_handle.close()
@@ -196,5 +194,5 @@ class BlastDownloader:
                 # stat.S_IRWXU Mask for file owner permissions.
                 # stat.S_IRWXG Mask for group permissions.
                 # stat.S_IRWXO Mask for permissions for others (not in group).
-                os.chmod(file_path, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
+                os.chmod(file, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
                 file.unlink()

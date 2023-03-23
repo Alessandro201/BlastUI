@@ -9,9 +9,6 @@ from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_response import *
 from scripts.utils import *
-import asyncio
-
-from threading import Thread
 
 
 @st.cache_data(show_spinner=False)
@@ -20,36 +17,16 @@ def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, 
     This function runs the blast command and returns the results as a dictionary.
     """
 
-    # getting the values from kwargs
-    evalue = kwargs.get('evalue', None)
-    max_target_seq = kwargs.get('max_target_seq', None)
-    task = kwargs.get('task', None)
-    matrix = kwargs.get('matrix', None)
+    additional_params = ''
+    for key, value in kwargs.items():
+        if value is None:
+            continue
 
-    query_genetic_code = kwargs.get('query_genetic_code', None)
-    db_genetic_code = kwargs.get('db_genetic_code', None)
-    word_size = kwargs.get('word_size', None)
-    gapopen = kwargs.get('existence', None)
-    gapextend = kwargs.get('extension', None)
-    reward = kwargs.get('reward', None)
-    penalty = kwargs.get('penalty', None)
-    user_custom_commands = kwargs.get('user_custom_commands', None)
+        if key == 'user_custom_commands':
+            additional_params += f' {value}'
+            continue
 
-    # Preparing strings to use in the commands
-    evalue = f' -evalue {evalue}' if evalue is not None else ''
-    max_target_seq = f' -max_target_seqs {max_target_seq}' if max_target_seq is not None else ''
-    task = f' -task {task}' if task is not None else ''
-    matrix = f' -matrix {matrix}' if matrix is not None else ''
-
-    query_genetic_code = f' -query_gencode {query_genetic_code}' if query_genetic_code is not None else ''
-    db_genetic_code = f' -db_gencode {db_genetic_code}' if db_genetic_code is not None else ''
-    word_size = f' -word_size {word_size}' if word_size is not None else ''
-    gapopen = f' -gapopen {gapopen}' if gapopen is not None else ''
-    gapextend = f' -gapextend {gapextend}' if gapextend is not None else ''
-    reward = f' -reward {reward}' if reward is not None else ''
-    penalty = f' -penalty {penalty}' if penalty is not None else ''
-
-    user_custom_commands = user_custom_commands if user_custom_commands is not None else ''
+        additional_params += f' -{key} {value}'
 
     today = datetime.today()
     today_time = today.strftime("%Y%m%d_%H%M%S")
@@ -59,18 +36,15 @@ def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, 
     query = query.strip()
     if query[0] != '>':
         query = '>Query_1\n' + query
+    Path(query_file).parent.mkdir(parents=True, exist_ok=True)
     Path(query_file).write_text(query)
 
     out_file = Path(f'./Analysis/{today_time}_results.json')
 
-    exec_in = read_configs()['BLAST']['use_executables_in']
+    blast_exec = st.session_state['blast_exec']
 
-    program_path = get_program_path(blast_mode, binaries_in=exec_in)
-
-    cmd = shlex.split(f'"{program_path}" -query "{query_file}" -db "{db}" -outfmt 15 '
-                      f'-out "{out_file}" -num_threads {threads} '
-                      f'{evalue} {max_target_seq} {task} {matrix} {query_genetic_code} {db_genetic_code} '
-                      f'{word_size} {gapopen} {gapextend} {reward} {penalty} {user_custom_commands} ')
+    cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt 15 '
+                      f'-out "{out_file}" -num_threads {threads} {additional_params}')
 
     run_command(cmd)
     return out_file
@@ -85,20 +59,21 @@ def choose_database(container=None):
 
     if dbs:
 
-        try:
-            previous_db = st.session_state.get('db', None)
-            previous_db_index = dbs.index(previous_db.parent.name) if previous_db else 0
-        except ValueError:
-            # The previous index might have been deleted so we reset it to 0
+        previous_db = st.session_state.get('db', None)
+
+        if previous_db:
+            previous_db_index = dbs.index(previous_db.parent.name)
+        else:
             previous_db_index = 0
 
         db = container.selectbox('Select Blast Database', dbs, index=previous_db_index)
-        st.session_state.db = Path('./BlastDatabases', db, 'blastdb')
-    else:
-        container.warning('No databases found. Please make one in the Manage Genome Databases section.')
+        db = Path('./BlastDatabases', db, 'blastdb')
+        return db
+
+    return None
 
 
-def read_query(uploaded_files: BytesIO) -> str:
+def read_query(uploaded_files: list[BytesIO]) -> str:
     """
     This function reads the query from the uploaded files and returns it as a string.
 
@@ -132,8 +107,8 @@ def set_advanced_options(container=None, blast_mode=None):
         options['evalue'] = st.select_slider('E-value: ', options=[10 ** i for i in range(-100, 4)], value=10)
 
     with row1_col2:
-        options['max_target_seq'] = st.number_input('Max sequences per query: ', min_value=1, value=500,
-                                                    step=100)
+        options['max_target_seqs'] = st.number_input('Max sequences per query: ', min_value=1, value=500,
+                                                     step=100)
 
     row2 = container.container()
     row2_col1, row2_col2 = row2.columns([1, 1])
@@ -161,11 +136,20 @@ def set_advanced_options(container=None, blast_mode=None):
                            'blastn': 'Existence: 5 Extension: 2',
                            'blastn-short': 'Existence: 5 Extension: 2'}
 
-            options['gap_penalty'] = st.selectbox('Gap penalty: ',
-                                                  options=gap_penalty[options['task']],
-                                                  index=gap_penalty[options['task']].index(
-                                                      gp_defaults[options['task']])
-                                                  )
+            penalty = st.selectbox('Gap penalty: ',
+                                   options=gap_penalty[options['task']],
+                                   index=gap_penalty[options['task']].index(
+                                       gp_defaults[options['task']])
+                                   )
+
+            if penalty == 'Linear':
+                gapopen, gapextend = 0, None
+            else:
+                # form: 'Existence: 5 Extension: 2' I only care about the numbers
+                _, gapopen, _, gapextend = penalty.split()
+
+            options['gapopen'] = gapopen
+            options['gapextend'] = gapextend
 
         with row2_col2:
             word_sizes = {'megablast': [16, 20, 24, 28, 32, 48, 64, 128, 256],
@@ -187,9 +171,13 @@ def set_advanced_options(container=None, blast_mode=None):
                            'blastn': 'Match: 2 Mismatch: -3',
                            'blastn-short': 'Match: 1 Mismatch: -3'}
 
-            options['reward_penalty'] = st.selectbox('Reward/Penalty: ',
-                                                     options=rp_options,
-                                                     index=rp_options.index(rp_defaults[options['task']]))
+            reward_penalty = st.selectbox('Reward/Penalty: ',
+                                          options=rp_options,
+                                          index=rp_options.index(rp_defaults[options['task']]))
+
+            _, reward, _, penalty = reward_penalty.split()
+            options['reward'] = reward
+            options['penalty'] = penalty
 
     if blast_mode == 'blastp':
         with row2_col1:
@@ -219,9 +207,18 @@ def set_advanced_options(container=None, blast_mode=None):
                            'blastp-fast': 'Existence: 11 Extension: 1',
                            'blastp-short': 'Existence: 9 Extension: 1'}
 
-            options['gap_penalty'] = st.selectbox('Gap penalty: ',
-                                                  options=gap_penalty,
-                                                  index=gap_penalty.index(gp_defaults[options['task']]))
+            penalty = st.selectbox('Gap penalty: ',
+                                   options=gap_penalty,
+                                   index=gap_penalty.index(gp_defaults[options['task']]))
+
+            if penalty == 'Linear':
+                gapopen, gapextend = 0, None
+            else:
+                # form: 'Existence: 5 Extension: 2' I only care about the numbers
+                _, gapopen, _, gapextend = penalty.split()
+
+            options['gapopen'] = gapopen
+            options['gapextend'] = gapextend
 
     if blast_mode == 'blastx':
         with row2_col1:
@@ -260,10 +257,10 @@ def set_advanced_options(container=None, blast_mode=None):
                                     30: "Peritrich Nuclear (30)",
                                     31: "Blastocrithidia Nuclear (31)"}
 
-            options['query_genetic_code'] = st.selectbox('Query Genetic code: ',
-                                                         options=genetic_code_options.keys(),
-                                                         index=0,
-                                                         format_func=lambda x: genetic_code_options[x])
+            options['query_gencode'] = st.selectbox('Query Genetic code: ',
+                                                    options=genetic_code_options.keys(),
+                                                    index=0,
+                                                    format_func=lambda x: genetic_code_options[x])
 
         with row2_col2:
             matrixes = ['BLOSUM45', 'BLOSUM50', 'BLOSUM62', 'BLOSUM80', 'BLOSUM90', 'PAM30', 'PAM70', 'PAM250']
@@ -275,8 +272,17 @@ def set_advanced_options(container=None, blast_mode=None):
                            'Existence: 13 Extension: 1', 'Existence: 12 Extension: 1', 'Existence: 11 Extension: 1',
                            'Existence: 10 Extension: 1', 'Existence: 9 Extension: 1', ]
 
-            options['gap_penalty'] = st.selectbox('Gap penalty: ', options=gap_penalty,
-                                                  index=gap_penalty.index('Existence: 11 Extension: 1'))
+            penalty = st.selectbox('Gap penalty: ', options=gap_penalty,
+                                   index=gap_penalty.index('Existence: 11 Extension: 1'))
+
+            if penalty == 'Linear':
+                gapopen, gapextend = 0, None
+            else:
+                # form: 'Existence: 5 Extension: 2' I only care about the numbers
+                _, gapopen, _, gapextend = penalty.split()
+
+            options['gapopen'] = gapopen
+            options['gapextend'] = gapextend
 
     if blast_mode == 'tblastn':
         with row2_col1:
@@ -315,10 +321,10 @@ def set_advanced_options(container=None, blast_mode=None):
                                     30: "Peritrich Nuclear (30)",
                                     31: "Blastocrithidia Nuclear (31)"}
 
-            options['db_genetic_code'] = st.selectbox('Database Genetic code: ',
-                                                      options=genetic_code_options.keys(),
-                                                      index=0,
-                                                      format_func=lambda x: genetic_code_options[x])
+            options['db_gencode'] = st.selectbox('Database Genetic code: ',
+                                                 options=genetic_code_options.keys(),
+                                                 index=0,
+                                                 format_func=lambda x: genetic_code_options[x])
 
         with row2_col2:
             matrixes = ['BLOSUM45', 'BLOSUM50', 'BLOSUM62', 'BLOSUM80', 'BLOSUM90', 'PAM30', 'PAM70', 'PAM250']
@@ -331,8 +337,17 @@ def set_advanced_options(container=None, blast_mode=None):
                                'Existence: 13 Extension: 1', 'Existence: 12 Extension: 1', 'Existence: 11 Extension: 1',
                                'Existence: 10 Extension: 1', 'Existence: 9 Extension: 1', ]
 
-                options['gap_penalty'] = st.selectbox('Gap penalty: ', options=gap_penalty,
-                                                      index=gap_penalty.index('Existence: 11 Extension: 1'))
+                penalty = st.selectbox('Gap penalty: ', options=gap_penalty,
+                                       index=gap_penalty.index('Existence: 11 Extension: 1'))
+
+                if penalty == 'Linear':
+                    gapopen, gapextend = 0, None
+                else:
+                    # form: 'Existence: 5 Extension: 2' I only care about the numbers
+                    _, gapopen, _, gapextend = penalty.split()
+
+                options['gapopen'] = gapopen
+                options['gapextend'] = gapextend
 
     if blast_mode == 'tblastx':
         with row2_col1:
@@ -364,41 +379,25 @@ def set_advanced_options(container=None, blast_mode=None):
                                     30: "Peritrich Nuclear (30)",
                                     31: "Blastocrithidia Nuclear (31)"}
 
-            options['query_genetic_code'] = st.selectbox('Query Genetic code: ',
-                                                         options=genetic_code_options.keys(),
-                                                         index=0,
-                                                         format_func=lambda x: genetic_code_options[x])
+            options['query_gencode'] = st.selectbox('Query Genetic code: ',
+                                                    options=genetic_code_options.keys(),
+                                                    index=0,
+                                                    format_func=lambda x: genetic_code_options[x])
 
         with row2_col2:
             matrixes = ['BLOSUM45', 'BLOSUM50', 'BLOSUM62', 'BLOSUM80', 'BLOSUM90', 'PAM30', 'PAM70', 'PAM250']
 
             options['matrix'] = st.selectbox('Matrix: ', options=matrixes, index=matrixes.index('BLOSUM62'))
 
-            options['db_genetic_code'] = st.selectbox('Database Genetic code: ',
-                                                      options=genetic_code_options.keys(),
-                                                      index=0,
-                                                      format_func=lambda x: genetic_code_options[x])
+            options['db_gencode'] = st.selectbox('Database Genetic code: ',
+                                                 options=genetic_code_options.keys(),
+                                                 index=0,
+                                                 format_func=lambda x: genetic_code_options[x])
 
     row3 = container.container()
     with row3:
         options['user_custom_commands'] = st.text_area('Insert additional commands:', height=50,
                                                        placeholder='Example: -strand both -ungapped ...')
-
-    if options.get('reward_penalty', None):
-        # form: 'Match: 1 Mismatch: -3' I only care about the numbers
-        _, reward, _, penalty = options['reward_penalty'].split()
-        options['reward'] = reward
-        options['penalty'] = penalty
-
-    if options.get('gap_penalty', None):
-        if options['gap_penalty'] == 'Linear':
-            existence, extension = 0, None
-        else:
-            # form: 'Existence: 5 Extension: 2' I only care about the numbers
-            _, existence, _, extension = options['gap_penalty'].split()
-
-        options['existence'] = existence
-        options['extension'] = extension
 
     st.session_state.advanced_options = options
 
@@ -446,15 +445,30 @@ def main():
                        initial_sidebar_state='auto',
                        page_icon='🧬')
 
+    st.title('Blast queries against your local database!')
     sidebar_options()
 
-    st.title('Blast queries against your local database!')
+    # Check that BLAST is installed
+    if 'blast_exec' not in st.session_state:
+        blast_exec = get_programs_path()
+        st.session_state['blast_exec'] = blast_exec
+
+    if st.session_state['blast_exec'] is None:
+        st.error('Could not find BLAST. Please download it in the home section.')
+        if st.button('Go to home'):
+            switch_page('Home')
+        st.stop()
 
     ###### BLAST MODE ######
     blast_modes = ["BLASTN", "BLASTP", "BLASTX", 'TBLASTN', 'TBLASTX']
     icons = ['list-task', 'list-task', "list-task", 'list-task', 'list-task']
-    st.session_state.blast_mode = option_menu('', options=blast_modes, icons=icons,
-                                              menu_icon="gear", default_index=3, orientation="horizontal").lower()
+
+    if 'blast_mode' in st.session_state:
+        default = blast_modes.index(st.session_state.blast_mode.upper())
+    else:
+        default = 3
+    st.session_state.blast_mode = option_menu('', options=blast_modes, icons=icons, menu_icon="gear",
+                                              default_index=default, orientation="horizontal").lower()
 
     ###### QUERY ######
     query = st.text_area('Insert the queries: ', placeholder="Query...", height=200).strip()
@@ -468,7 +482,12 @@ def main():
         st.session_state.query = read_query(uploaded_files)
 
     ###### BLAST OPTIONS ######
-    choose_database()
+    db = choose_database()
+    st.session_state.db = db
+
+    if db is None:
+        st.warning('No databases found. Please make one in the Manage Genome Databases section.')
+        st.stop()
 
     exp = st.expander('Advanced options', expanded=False)
     set_advanced_options(exp)

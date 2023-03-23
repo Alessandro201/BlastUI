@@ -1,5 +1,6 @@
 import streamlit as st
 import shutil
+from string import whitespace
 from io import StringIO
 from pathlib import Path
 from scripts.makeblastdb import *
@@ -9,14 +10,10 @@ from subprocess import CalledProcessError
 
 from streamlit_extras.switch_page_button import switch_page
 from streamlit_extras.stoggle import stoggle
+from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
 
 
-def save_uploads_to_disk(genomes: list[GenomeData], location: Path):
-    for genome in genomes:
-        with open(location / genome.name, 'w') as f:
-            f.write(genome.genome)
-
-
+@st.cache_data(show_spinner=False)
 def read_genomes(uploaded_files) -> list[GenomeData]:
     genomes = []
     for uploaded_file in uploaded_files:
@@ -29,18 +26,13 @@ def read_genomes(uploaded_files) -> list[GenomeData]:
     return genomes
 
 
-def set_sidebar():
-    options = dict()
-
+def sidebar_options():
     st.sidebar.title('Options')
-
     st.sidebar.subheader('Blast database options')
 
-    options['threads'] = st.sidebar.number_input('Threads to use: ',
-                                                 min_value=1, max_value=cpu_count(),
-                                                 value=round(cpu_count() / 2), step=1)
-
-    return options
+    st.session_state['threads'] = st.sidebar.number_input('Threads to use: ',
+                                                          min_value=1, max_value=cpu_count(),
+                                                          value=round(cpu_count() / 2), step=1)
 
 
 def main():
@@ -49,95 +41,113 @@ def main():
                        initial_sidebar_state='auto',
                        page_icon='🧬')
 
-    options = set_sidebar()
-    st.title("Manage blast db")
+    sidebar_options()
+    st.title("Manage databases")
 
     # Check that BLAST is installed
-    try:
-        binaries_in = read_configs()['BLAST']['use_executables_in']
-        get_program_path('makeblastdb', binaries_in=binaries_in)
-    except ValueError:
+    if 'blast_exec' not in st.session_state:
+        print('Checking blast...')
+        blast_exec = get_programs_path()
+        st.session_state['blast_exec'] = blast_exec
+
+    if st.session_state['blast_exec'] is None:
         st.error('Could not find BLAST. Please download it in the home section.')
         if st.button('Go to home'):
             switch_page('Home')
         st.stop()
 
-    st.markdown("""
-                To blast a query against some genomes, you need to first create a blast database with them. 
-                This process will take a few minutes, depending on the number of genomes and their size, 
-                and it will only be done once.
-                
-                The database will be saved locally and no file will be shared online. As a matter of fact, 
-                the application works entirely offline, apart from the first download of BLAST.
-                """)
+    stoggle('❓ What is a blast database? ',
+            """
+    To blast a query against some genomes, you need to first create a blast database with them. 
+    This process will take a few minutes, depending on the number of genomes and their size, 
+    and it will only be done once. <br> <br>
+    The database will be saved locally and no file will be shared online. As a matter of fact, 
+    the application works entirely offline, apart from the first download of BLAST.
+    """)
 
-    create_tab, manage_tab = st.tabs(['Create blast database', 'Manage blast databases'])
+    st.write('')
+
+    create_tab, manage_tab = st.tabs(['Create new database', 'Manage databases'])
 
     with create_tab:
-        st.write('Upload the genomes you want to use. To clear the list, just refresh the page.')
+        st.write('Upload the genomes you want to use. To clear the list refresh the page.')
 
-        st.session_state['genomes'] = list()
         uploaded_files = st.file_uploader("Upload genomes", type=["fasta", "faa", 'fa'], accept_multiple_files=True)
         if uploaded_files:
-            with st.spinner('Reading files...'):
-                st.session_state['genomes'] = read_genomes(uploaded_files)
-            st.write(f'You have uploaded {len(st.session_state["genomes"])} genomes.')
-        else:
-            del st.session_state['genomes']
+            st.write(f'You have uploaded {len(uploaded_files)} genomes.')
 
-        expand = True if 'genomes' in st.session_state else False
-        with st.expander('DATABASE OPTIONS', expanded=expand):
+        if uploaded_files is not None:
 
-            if 'genomes' in st.session_state:
-                st.text_input('Database name', key='new_db_name', value='my_database')
+            ##### OPTIONS #####
+            with st.expander('DATABASE OPTIONS', expanded=True):
 
-                col1, col2 = st.columns(2)
+                if 'genomes' in st.session_state:
+                    new_db_name = st.text_input('Database name', value='my_database')
 
-                with col1:
+                    if not new_db_name:
+                        st.error('You must enter a database name')
+                        st.stop()
+
+                    # Check if the name is valid. The user could insert a path or a forbidden character
+                    # which may lead to security issues
+                    blast_db_dir = Path.cwd() / 'BlastDatabases'
+                    test_path = Path(blast_db_dir / new_db_name.strip(whitespace)).resolve()
+                    unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>']
+                    if test_path.parent != Path(blast_db_dir).resolve() or \
+                            any([char in str(test_path.name) for char in unallowed_chars]):
+                        st.error(f'Filename "{new_db_name}" is not valid. You cannot enter "\\/\:*?"<>|"')
+                        st.stop()
+
+                    new_db_name = test_path.name.strip(whitespace)
+                    if test_path.exists():
+                        st.warning(f'The database name "{new_db_name}" is already in use. Please choose another one.')
+
+                    st.session_state['new_db_name'] = new_db_name
+
                     dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
                     if dbtype == 'Nucleotides':
                         st.session_state['dbtype'] = 'nucl'
                     else:
                         st.session_state['dbtype'] = 'prot'
 
-                    stoggle('Help ❓',
+                    stoggle('❓ Why renaming headers?',
                             """
                             Blast requires that the headers of the fasta files are unique. If you have 
                             uploaded genomes with repeated headers, you can choose to rename them. 
-                            Each contig will be renamed as follows: "[genome_name]_NODE_[contig_number]" so 
-                            be sure to not upload genomes with the same name. </br></br>
+                            Each contig will be renamed as follows: "[file_name]_NODE_[contig_number]" so 
+                            be sure to not upload fasta files with the same name.
+                            Ideally, the fasta files should have the same name as the genome they contain.
+                            """)
+
+                    st.checkbox('Auto rename headers', key='rename_headers_checkbox', value=True)
+
+                    stoggle('❓ Why removing small contigs?',
+                            """
+                            You can choose to remove contigs under a specified length from your genomes before 
+                            creating the blast database. This will remove many partial and broken contigs formed during 
+                            the assembly which may introduce noise in the blast results. <br> <br>
                             If you have uploaded multifasta files of annotated proteins you should avoid 
                             removing small contigs, as you may remove actual proteins. 
                             Furthermore, you should have removed them before annotating the genome.
                             """)
+                    st.checkbox('Remove small contigs from the fasta files', key='remove_contigs_checkbox', value=True)
 
-                    st.checkbox('Rename headers', key='rename_headers_checkbox', value=True)
-
-                with col2:
-                    stoggle('Help ❓',
-                            """
-                            You can choose to remove contigs under a specified length from your genomes before 
-                            creating the blast database. This will remove many partial and broken contigs formed during 
-                            the assembly which may introduce noise in the blast results. 
-                            """)
-                    st.checkbox('Remove small contigs from the fasta', key='remove_contigs_checkbox', value=True)
                     st.number_input('Minimum contig length', key='min_length',
                                     disabled=not st.session_state['remove_contigs_checkbox'],
                                     value=1000, min_value=1, max_value=10000001, step=100)
 
-        if 'genomes' in st.session_state:
             if st.button(label='Create database'):
 
                 pbar = st.progress(0)
-                binaries_in = read_configs()['BLAST']['use_executables_in']
-                makeblastdb_exec = get_program_path('makeblastdb', binaries_in=binaries_in)
-
-                makeblastdb = MakeBlastDB(genomes=st.session_state['genomes'],
+                with st.spinner('Reading files...'):
+                    genomes = read_genomes(uploaded_files)
+                blast_exec = st.session_state['blast_exec']
+                makeblastdb = MakeBlastDB(genomes=genomes,
                                           db_name=st.session_state['new_db_name'],
                                           dbtype=st.session_state['dbtype'],
-                                          threads=options['threads'],
+                                          threads=st.session_state['threads'],
                                           pbar=pbar,
-                                          makeblastdb_exec=makeblastdb_exec,
+                                          makeblastdb_exec=blast_exec['makeblastdb'],
                                           rename_headers=st.session_state['rename_headers_checkbox'])
 
                 # Filter genomes
@@ -162,43 +172,63 @@ def main():
                 st.success('Done!')
 
     with manage_tab:
-        st.write('Here you can manage the blast databases you have created. '
-                 'You can delete them or rename them.')
+        st.subheader('Here you can view the databases you have created:')
 
-        st.subheader('Choose database:')
         Path(Path().cwd(), 'BlastDatabases').mkdir(exist_ok=True, parents=True)
         databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
+
         if databases:
-            st.session_state['database'] = st.radio('Databases', [db.name for db in databases])
+            st.markdown(''.join(['🔵 ' + db.name + '<br>' for db in databases]), unsafe_allow_html=True)
         else:
             st.info('No databases found.')
             st.stop()
 
-        st.markdown(f'##### Rename {st.session_state["database"]}')
-        new_name = st.text_input('New name', value=f'{st.session_state["database"]}')
+        ### RENAME DATABASE
+        st.markdown("""
+                    <br>
 
-        if st.button('Rename'):
+                    ##### Rename database
+                    """, unsafe_allow_html=True)
+
+        db = ndf_selectbox('Select database', [db.name for db in databases], key='choose_rename_db')
+        new_name = st.text_input('New name', value=f'{db}')
+
+        btn_disabled = False if db else True
+        if st.button('Rename', disabled=btn_disabled):
             with st.empty():
-                old_db_path = Path(Path().cwd(), 'BlastDatabases', st.session_state['database'])
+                old_db_path = Path(Path().cwd(), 'BlastDatabases', db)
                 new_db_path = Path(Path().cwd(), 'BlastDatabases', new_name)
                 old_db_path.rename(new_db_path)
 
-            st.success('Done!')
+            st.session_state['database_renamed'] = True
+            st.experimental_rerun()
 
-        st.markdown(f'##### Delete {st.session_state["database"]} database:')
-        if st.button('Delete'):
+        if 'database_renamed' in st.session_state:
+            st.success('Database renamed!')
+            del st.session_state['database_renamed']
+
+        ### DELETE DATABASE
+        st.markdown("""
+                    <br>
+
+                    ##### Delete database
+                    """, unsafe_allow_html=True)
+
+        db = ndf_selectbox('Select database', [db.name for db in databases], key='delete_rename_db')
+
+        btn_disabled = False if db else True
+        if st.button('Delete', disabled=btn_disabled):
             def delete_database():
-                db_name = st.session_state['database']
-                db_path = Path(Path().cwd(), 'BlastDatabases', db_name)
+                db_path = Path(Path().cwd(), 'BlastDatabases', db)
                 shutil.rmtree(db_path)
 
                 st.session_state['database_deleted'] = True
 
-            st.warning(f"The database {st.session_state['database']} will be deleted!")
+            st.warning(f"The database ***{db}*** will be deleted!")
             st.button('Confirm', on_click=delete_database)
 
         if 'database_deleted' in st.session_state:
-            st.success('Done!')
+            st.success('Database deleted!')
             del st.session_state['database_deleted']
 
 
