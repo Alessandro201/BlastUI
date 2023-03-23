@@ -1,4 +1,3 @@
-import base64
 import pandas as pd
 import os
 import base64
@@ -7,8 +6,8 @@ from math import ceil
 from pathlib import PurePath, Path
 from typing import Union
 
-import streamlit.components.v1 as components
 import streamlit as st
+import streamlit.components.v1 as components
 from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
 from streamlit_option_menu import option_menu
 from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
@@ -133,7 +132,7 @@ def html_download(object_to_download: Union[str, bytes], download_filename):
         # some strings <-> bytes conversions necessary here
         b64 = base64.b64encode(bytes_object).decode()
 
-    except AttributeError as e:
+    except AttributeError:
         b64 = base64.b64encode(object_to_download).decode()
 
     dl_link = f"""
@@ -251,6 +250,8 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
         'theme': 'streamlit',
         'allow_unsafe_jscode': True,
         'custom_css': custom_css,
+        'row_buffer': 20,
+        'enable_quicksearch': True
     }
 
     return kwargs
@@ -350,9 +351,19 @@ def main():
                        initial_sidebar_state='auto',
                        page_icon='🧬')
 
+    st.title('Blast results!')
     sidebar_options()
 
-    st.title('Blast results!')
+    # Check that BLAST is installed
+    if 'blast_exec' not in st.session_state:
+        blast_exec = get_programs_path()
+        st.session_state['blast_exec'] = blast_exec
+
+    if st.session_state['blast_exec'] is None:
+        st.error('Could not find BLAST. Please download it in the home section.')
+        if st.button('Go to home'):
+            switch_page('Home')
+        st.stop()
 
     blast_response = choose_analysis_to_load()
     st.session_state.blast_response = blast_response
@@ -371,6 +382,7 @@ def main():
 
         st.subheader('Download')
         download_container = st.empty()
+        set_download_buttons(download_container)
 
         tab_description = st.expander('How to work with the table', expanded=False)
         with tab_description:
@@ -385,7 +397,8 @@ def main():
             ##### 1.1) Example
             For example, you can group by *"Strain"* to see how many hits each strain has, and click on the
             *"count(query_title)"* column to sort it. It's very useful if you want to quickly find multiple
-            matches for the same strain, like in a search for a duplicate gene.
+            matches for the same strain, like in a search for a duplicate gene. It works best if you have only 
+            one query, otherwise it gets a bit messy.
             
             ##### 2) Selecting rows
             You can select rows by clicking on them. To select multiple rows, press *ctrl* while clicking, or
@@ -410,12 +423,9 @@ def main():
 
         st.write(f"Found {grid_df.shape[0]} results")
 
-        set_download_buttons(download_container)
-
         # Show alignments of selected rows
         if selected:
             # Extract indexes in the order shown in the grid
-            row_alignments = list()
             row_indexes, indexes = extract_indexes(selected)
             row_indexes = row_indexes[:50]
             indexes = pd.Series(indexes[:50])
@@ -496,12 +506,14 @@ def main():
             st.info('No alignments to show')
             st.stop()
 
-        max_hits = 200
+        max_hits = st.number_input('Max hits to show', min_value=1, max_value=3000, value=200, step=50)
         st.subheader(f'Distribution of the top {min(max_hits, len(indexes))} Hits')
         st.write('Sorted by Evalue and alignment percentage')
 
         st.bokeh_chart(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
                        use_container_width=True)
+
+        # st.pyplot(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits))
 
     with fragile(tab_analysis):
         if grid_df.empty:
@@ -509,7 +521,7 @@ def main():
             raise fragile.Break()
 
         analysis_choices = ['Find strain with multiple hits for the same query',
-                            'Find strain with stop codons inside the alignment',]
+                            'Find strain with stop codons inside the alignment']
 
         choice = ndf_selectbox('Select the analysis you want to perform:', options=analysis_choices)
 
