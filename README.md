@@ -15,6 +15,11 @@ This WebApp is a simple interface to run blast locally.
 - Save the hit sequences or the alignments
 - Find multiple hits from the same sequence
 
+It also has a dark mode.
+
+<br>
+<br>
+
 
 ![immagine](https://user-images.githubusercontent.com/61567683/227249073-3cb94f8e-e045-40be-8ff9-91de799537bb.png)
 
