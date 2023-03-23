@@ -1,7 +1,5 @@
-import ftplib
 import hashlib
 import shutil
-import streamlit as st
 import sys
 import os
 import tarfile
