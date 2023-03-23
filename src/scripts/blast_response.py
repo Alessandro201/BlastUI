@@ -63,7 +63,8 @@ class BlastResponse:
         else:
             raise TypeError(f"Expected a dict or Path object, got {type(json_file)} instead")
 
-    def _parse_json(self, json: dict) -> (pd.DataFrame, dict):
+    @staticmethod
+    def _parse_json(json: dict) -> (pd.DataFrame, dict):
         index = 0
         metadata = {
             'queries': list(),
@@ -376,7 +377,7 @@ class BlastResponse:
         rows.insert(0, 'index', value=range(1, len(rows) + 1))
         rows.set_index('index', inplace=True)
         rows.insert(0, 'x', value=(rows['query_to'] + rows['query_from']) // 2)
-        rows.insert(0, 'y', value=-(rows.index))
+        rows.insert(0, 'y', value=-rows.index)
         rows.insert(0, 'width', value=(rows['query_to'] - rows['query_from']))
         rows.insert(0, 'height', value=0.8)
         rows.insert(0, 'color', value=rows['perc_identity'].apply(get_color))
