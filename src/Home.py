@@ -1,5 +1,7 @@
-# Description: This file is the entry point of streamlit for the application.
-# It is called by the main.py file.
+# Description: This file is the entry point of the streamlit application
+# It is called by run_app.py
+
+import streamlit as st
 from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_downloader import BlastDownloader, DownloadError
@@ -20,7 +22,7 @@ def main():
     The program compares nucleotide or protein sequences to sequence databases and calculates the 
     statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships 
     between sequences as well as help identify members of gene families. 
-    
+
     This WebApp is a simple interface to run blast locally against your own sequences. You can then filter the 
     results and save them in a file.
     """)
@@ -32,20 +34,21 @@ def main():
     You can check below if the app was able to find it or not.
     """)
 
-    if all(check_blast_executables_in_bin()):
-        blast_version = check_blast_version(Path('Binaries/bin/blastn'))
-        st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
-                   f'button to get the latest version.')
-        use_executables_in = 'BlastUI'
+    with st.spinner('Checking if blast is installed...'):
+        blast_exec = get_programs_path()
 
-    elif all(check_blast_executables_in_path()):
-        blast_version = check_blast_version(Path('blastn'))
-        st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
-                   f'button to get the latest version.')
-        use_executables_in = 'PATH'
-    else:
-        st.warning(f'Blast was not found in your computer. Click the download button to get the latest version.')
-        use_executables_in = None
+        if not blast_exec:
+            st.warning(f'Blast was not found in your computer. Click the download button to get the latest version.')
+
+        if blast_exec['blastn'].parent == Path('Binaries/bin'):
+            blast_version = check_blast_version(blast_exec['blastn'])
+            st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
+                       f'button to get the latest version.')
+
+        else:
+            blast_version = check_blast_version(blast_exec['blastn'])
+            st.success(f'Blast {blast_version} was found in your computer, but if you want you can click the download '
+                       f'button to get the latest version.')
 
     if st.button('Download blast'):
         pbar = st.progress(0)
@@ -62,16 +65,13 @@ def main():
         except ftplib.all_errors:
             st.error('There was an error during the download. Try again.')
 
-        use_executables_in = 'BlastUI'
-
-        blast_version = check_blast_version(Path('Binaries/bin/blastn'))
+        blast_exec = get_programs_path()
+        blast_version = check_blast_version(blast_exec['blastn'])
         st.success(f'Blast {blast_version} was downloaded successfully!')
 
-    if use_executables_in is not None:
-        configs = read_configs()
-        configs['BLAST']['use_executables_in'] = use_executables_in
-        write_configs(configs)
+    st.session_state['blast_exec'] = blast_exec
 
+    if st.session_state['blast_exec'] is not None:
         ##### 2) Choose the database #####
         st.header('Choose the database')
         st.write('The next step is to create your genome database from the fasta files. You can manage your '
