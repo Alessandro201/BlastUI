@@ -1,7 +1,6 @@
 import shutil
 import subprocess
 import sys
-from configparser import ConfigParser
 from pathlib import Path
 import streamlit as st
 from io import BytesIO
@@ -31,47 +30,78 @@ class GenomeData:
         self.genome: str = genome
 
 
-def read_configs(config_file='config.ini'):
-    config = ConfigParser()
-    config.read(config_file)
-    return config
-
-
-def write_configs(config, config_file='config.ini'):
-    with open(config_file, 'w') as f:
-        config.write(f)
-
-
-def get_program_path(program_name, binaries_in='BlastUI'):
+def get_programs_path(blast_programs: list[str] = None):
     """
-    This function returns the path to the program passed as an argument.
-    It checks if the program is in the PATH variable, and if not, it checks if it is in the Binaries folder.
-    If it is not in the Binaries folder, it raises an exception.
+    Returns a dictionary with the paths to the blast executables.
+    It gives priority to the programs in the Binaries folder, and if they are not found, it looks for them in $PATH.
+    All programs must be found in the same directory, otherwise it returns None to avoid having different versions of
+    blast.
     """
 
-    if binaries_in == 'PATH':
-        program_path = shutil.which(program_name)
-        if program_path is None:
-            st.warning(f'{program_name} not found in PATH. Using the one in the Binaries folder')
-            binaries_in = 'BlastUI'
+    if not blast_programs:
+        blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx',
+                          'makeblastdb', 'makembindex', 'tblastn_vdb']
 
-    if binaries_in == 'BlastUI':
+    blast_exec = dict()
+
+    # Find programs in Binaries folder
+    for program in blast_programs:
         match sys.platform:
             case 'linux' | 'linux2' | 'darwin':
-                program_path = Path('./Binaries/bin') / program_name
-            case 'win32':
-                program_path = Path('./Binaries/bin') / (program_name + '.exe')
+                program_path = Path('./Binaries/bin', program)
+            case "win32":
+                program_path = Path('./Binaries/bin', program + '.exe')
             case _:
                 raise OSError(f'Your platform ({sys.platform}) is not supported, there are no blast executables '
                               f'for your Operating System.')
 
-    if not Path(program_path).exists():
-        raise ValueError(f'{program_name} not found in the Binaries folder.')
+        blast_exec[program] = program_path if program_path.exists() else None
 
-    return program_path
+    if all(blast_exec.values()):
+        return blast_exec
+
+    # Find programs in $PATH
+    for program in blast_programs:
+        program_path = Path(shutil.which(program))
+        blast_exec[program] = program_path if program_path.exists() else None
+
+    if all(blast_exec.values()):
+        return blast_exec
+
+    return None
 
 
-def check_blast_executables_in_path():
+def get_blast_installation_directory():
+    executables_in = None
+
+    if all(_check_blast_executables_in_bin()):
+        executables_in = './Binaries/bin'
+
+    elif all(_check_blast_executables_in_path()):
+        executables_in = '$PATH'
+    else:
+        pass
+
+    return executables_in
+
+
+def _check_blast_executables_in_bin():
+    """
+    Returns a list of paths to the blast executables in the Binaries folder.
+    If a program is not found, it returns None.
+    :return:
+    """
+    blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']
+
+    for program in blast_programs:
+        program_path = Path('./Binaries/bin', program)
+        if sys.platform == "win32":
+            program_path = Path('./Binaries/bin', program + '.exe')
+
+        yield program_path if program_path.exists() else None
+
+
+def _check_blast_executables_in_path():
     """
     Returns a list of paths to the blast executables found in $PATH.
     If a program is not found, it returns None.
@@ -82,23 +112,6 @@ def check_blast_executables_in_path():
 
     for program in blast_programs:
         yield shutil.which(program)
-
-
-def check_blast_executables_in_bin():
-    """
-    Returns a list of paths to the blast executables in the Binaries folder.
-    If a program is not found, it returns None.
-    :return:
-    """
-
-    blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']
-
-    for program in blast_programs:
-        program_path = Path('./Binaries/bin', program)
-        if sys.platform == "win32":
-            program_path = Path('./Binaries/bin', program + '.exe')
-
-        yield program_path if program_path.exists() else None
 
 
 def check_blast_version(program_path: Path) -> str:
