@@ -13,11 +13,11 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon='🧬')
+                       page_icon=Path(resource_path('.'), 'icon.ico').read_bytes())
 
     st.title('BlastUI')
     st.markdown("""
-    From the [website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
+    From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
     > The Basic Local Alignment Search Tool (BLAST) finds regions of local similarity between sequences. 
     The program compares nucleotide or protein sequences to sequence databases and calculates the 
     statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships 

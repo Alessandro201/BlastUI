@@ -39,7 +39,7 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon='🧬')
+                       page_icon=Path(resource_path('.'), 'icon.ico').read_bytes())
 
     sidebar_options()
     st.title("Manage databases")
@@ -76,65 +76,64 @@ def main():
         if uploaded_files:
             st.write(f'You have uploaded {len(uploaded_files)} genomes.')
 
-        if uploaded_files is not None:
+        if uploaded_files:
 
             ##### OPTIONS #####
             with st.expander('DATABASE OPTIONS', expanded=True):
 
-                if 'genomes' in st.session_state:
-                    new_db_name = st.text_input('Database name', value='my_database')
+                new_db_name = st.text_input('Database name', value='my_database')
 
-                    if not new_db_name:
-                        st.error('You must enter a database name')
-                        st.stop()
+                if not new_db_name:
+                    st.error('You must enter a database name')
+                    st.stop()
 
-                    # Check if the name is valid. The user could insert a path or a forbidden character
-                    # which may lead to security issues
-                    blast_db_dir = Path.cwd() / 'BlastDatabases'
-                    test_path = Path(blast_db_dir / new_db_name.strip(whitespace)).resolve()
-                    unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>']
-                    if test_path.parent != Path(blast_db_dir).resolve() or \
-                            any([char in str(test_path.name) for char in unallowed_chars]):
-                        st.error(f'Filename "{new_db_name}" is not valid. You cannot enter "\\/\:*?"<>|"')
-                        st.stop()
+                # Check if the name is valid. The user could insert a path or a forbidden character
+                # which may lead to security issues
+                blast_db_dir = Path.cwd() / 'BlastDatabases'
+                test_path = Path(blast_db_dir / new_db_name.strip(whitespace)).resolve()
+                unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>']
+                if test_path.parent != Path(blast_db_dir).resolve() or \
+                        any([char in str(test_path.name) for char in unallowed_chars]):
+                    st.error(f'Filename "{new_db_name}" is not valid. You cannot enter "\\/\:*?"<>|"')
+                    st.stop()
 
-                    new_db_name = test_path.name.strip(whitespace)
-                    if test_path.exists():
-                        st.warning(f'The database name "{new_db_name}" is already in use. Please choose another one.')
+                new_db_name = test_path.name.strip(whitespace)
+                if test_path.exists():
+                    st.warning(f'The database name "{new_db_name}" is already in use. Please choose another one.')
 
-                    st.session_state['new_db_name'] = new_db_name
+                st.session_state['new_db_name'] = new_db_name
 
-                    dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
-                    if dbtype == 'Nucleotides':
-                        st.session_state['dbtype'] = 'nucl'
-                    else:
-                        st.session_state['dbtype'] = 'prot'
+                dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
+                if dbtype == 'Nucleotides':
+                    st.session_state['dbtype'] = 'nucl'
+                else:
+                    st.session_state['dbtype'] = 'prot'
 
-                    stoggle('❓ Why renaming headers?',
-                            """
-                            Blast requires that the headers of the fasta files are unique. If you have 
-                            uploaded genomes with repeated headers, you can choose to rename them. 
-                            Each contig will be renamed as follows: "[file_name]_NODE_[contig_number]" so 
-                            be sure to not upload fasta files with the same name.
-                            Ideally, the fasta files should have the same name as the genome they contain.
-                            """)
+                stoggle('❓ Why renaming headers?',
+                        """
+                        Blast requires that the headers of the fasta files are unique. If you have 
+                        uploaded genomes with repeated headers, you can choose to rename them. 
+                        Each contig will be renamed as follows: "[file_name]_NODE_[contig_number]" so 
+                        be sure to not upload fasta files with the same name.
+                        Ideally, the fasta files should have the same name as the genome they contain.
+                        """)
 
-                    st.checkbox('Auto rename headers', key='rename_headers_checkbox', value=True)
+                st.checkbox('Auto rename headers', key='rename_headers_checkbox', value=True)
 
-                    stoggle('❓ Why removing small contigs?',
-                            """
-                            You can choose to remove contigs under a specified length from your genomes before 
-                            creating the blast database. This will remove many partial and broken contigs formed during 
-                            the assembly which may introduce noise in the blast results. <br> <br>
-                            If you have uploaded multifasta files of annotated proteins you should avoid 
-                            removing small contigs, as you may remove actual proteins. 
-                            Furthermore, you should have removed them before annotating the genome.
-                            """)
-                    st.checkbox('Remove small contigs from the fasta files', key='remove_contigs_checkbox', value=True)
+                stoggle('❓ Why removing small contigs?',
+                        """
+                        You can choose to remove contigs under a specified length from your genomes before 
+                        creating the blast database. This will remove many partial and broken contigs formed during 
+                        the assembly which may introduce noise in the blast results. <br> <br>
+                        If you have uploaded multifasta files of annotated proteins you should avoid 
+                        removing small contigs, as you may remove actual proteins. 
+                        Furthermore, you should have removed them before annotating the genome.
+                        """)
+                st.checkbox('Remove small contigs from the fasta files', key='remove_contigs_checkbox', value=True)
 
-                    st.number_input('Minimum contig length', key='min_length',
-                                    disabled=not st.session_state['remove_contigs_checkbox'],
-                                    value=1000, min_value=1, max_value=10000001, step=100)
+                st.number_input('Minimum contig length', key='min_length',
+                                disabled=not st.session_state['remove_contigs_checkbox'],
+                                value=1000, min_value=1, max_value=10000001, step=100)
 
             if st.button(label='Create database'):
 
