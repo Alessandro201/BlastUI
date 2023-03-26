@@ -11,6 +11,7 @@ from subprocess import CalledProcessError
 from streamlit_extras.switch_page_button import switch_page
 from streamlit_extras.stoggle import stoggle
 from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
+from st_keyup import st_keyup
 
 
 @st.cache_data(show_spinner=False)
@@ -35,11 +36,31 @@ def sidebar_options():
                                                           value=round(cpu_count() / 2), step=1)
 
 
+def check_db_name_validity(db_name: str):
+    """
+    Check if the name of the blast database is valid. The user could insert a path or a forbidden character
+    which may lead to security issues. If the name is not valid it uses streamlit to inform the user.
+
+    """
+    blast_db_dir = Path.cwd() / 'BlastDatabases'
+    test_path = Path(blast_db_dir / db_name).resolve()
+
+    # symbols and whitespaces like tabs are not allowed, but spaces are
+    unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>'] + [*whitespace.replace(' ', '')]
+    if test_path.parent != Path(blast_db_dir).resolve() or \
+            any([char in db_name for char in unallowed_chars]):
+        st.error(f'Filename "{db_name!r}" is not valid. You cannot enter "\\/\:*?"<>|"')
+        st.stop()
+
+    if test_path.exists():
+        st.warning(f'The database name "{db_name}" is already in use. Please choose another one.')
+
+
 def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon=Path(resource_path('.'), 'icon.ico').read_bytes())
+                       page_icon=Path(resource_path('.'), 'icon.png').read_bytes())
 
     sidebar_options()
     st.title("Manage databases")
@@ -81,26 +102,14 @@ def main():
             ##### OPTIONS #####
             with st.expander('DATABASE OPTIONS', expanded=True):
 
-                new_db_name = st.text_input('Database name', value='my_database')
+                new_db_name = st_keyup('Database name', value='my_database')
 
                 if not new_db_name:
                     st.error('You must enter a database name')
                     st.stop()
 
-                # Check if the name is valid. The user could insert a path or a forbidden character
-                # which may lead to security issues
-                blast_db_dir = Path.cwd() / 'BlastDatabases'
-                test_path = Path(blast_db_dir / new_db_name.strip(whitespace)).resolve()
-                unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>']
-                if test_path.parent != Path(blast_db_dir).resolve() or \
-                        any([char in str(test_path.name) for char in unallowed_chars]):
-                    st.error(f'Filename "{new_db_name}" is not valid. You cannot enter "\\/\:*?"<>|"')
-                    st.stop()
-
-                new_db_name = test_path.name.strip(whitespace)
-                if test_path.exists():
-                    st.warning(f'The database name "{new_db_name}" is already in use. Please choose another one.')
-
+                new_db_name = new_db_name.strip(whitespace)
+                check_db_name_validity(new_db_name)
                 st.session_state['new_db_name'] = new_db_name
 
                 dbtype = st.radio('Database type:', ('Nucleotides', 'Proteins'))
@@ -177,7 +186,7 @@ def main():
         databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
 
         if databases:
-            st.markdown(''.join(['🔵 ' + db.name + '<br>' for db in databases]), unsafe_allow_html=True)
+            st.markdown(''.join(['🔹 ' + db.name + '<br>' for db in databases]), unsafe_allow_html=True)
         else:
             st.info('No databases found.')
             st.stop()
@@ -190,13 +199,16 @@ def main():
                     """, unsafe_allow_html=True)
 
         db = ndf_selectbox('Select database', [db.name for db in databases], key='choose_rename_db')
-        new_name = st.text_input('New name', value=f'{db}')
+
+        if db:
+            new_name = st_keyup('New name', value=f'{db}')
+            check_db_name_validity(new_name)
 
         btn_disabled = False if db else True
         if st.button('Rename', disabled=btn_disabled):
             with st.empty():
                 old_db_path = Path(Path().cwd(), 'BlastDatabases', db)
-                new_db_path = Path(Path().cwd(), 'BlastDatabases', new_name)
+                new_db_path = Path(Path().cwd(), 'BlastDatabases', new_name.strip(whitespace))
                 old_db_path.rename(new_db_path)
 
             st.session_state['database_renamed'] = True
