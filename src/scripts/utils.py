@@ -63,8 +63,13 @@ def get_programs_path(blast_programs: list[str] = None):
 
     # Find programs in $PATH
     for program in blast_programs:
-        program_path = Path(shutil.which(program))
-        blast_exec[program] = program_path if program_path.exists() else None
+        program_path = shutil.which(program)
+
+        if program_path is None:
+            blast_exec[program] = None
+            continue
+
+        blast_exec[program] = program_path if Path(program_path).exists() else None
 
     if all(blast_exec.values()):
         return blast_exec
