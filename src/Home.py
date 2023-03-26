@@ -13,7 +13,7 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon=Path(resource_path('.'), 'icon.ico').read_bytes())
+                       page_icon=Path(resource_path('.'), 'icon.png').read_bytes())
 
     st.title('BlastUI')
     st.markdown("""
