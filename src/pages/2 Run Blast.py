@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+
+# Needed to search for scripts in the parent folder
+sys.path.append(str(Path(__file__).parent))
+
 import shlex
 import time
 from io import StringIO, BytesIO

@@ -1,9 +1,15 @@
+import sys
+from pathlib import Path
+
+# Needed to search for scripts in the parent folder
+sys.path.append(str(Path(__file__).parent))
+
 import pandas as pd
 import os
 import base64
 import json
 from math import ceil
-from pathlib import PurePath, Path
+from pathlib import PurePath
 from typing import Union
 
 import streamlit as st

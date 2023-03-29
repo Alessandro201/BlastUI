@@ -1,6 +1,12 @@
 # Description: This file is the entry point of the streamlit application
 # It is called by run_app.py
 
+import sys
+from pathlib import Path
+
+# Needed to search for scripts in the parent folder
+sys.path.append(str(Path(__file__).parent))
+
 import streamlit as st
 from streamlit_extras.switch_page_button import switch_page
 

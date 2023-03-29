@@ -1,8 +1,13 @@
+import sys
+from pathlib import Path
+
+# Needed to search for scripts in the parent folder
+sys.path.append(str(Path(__file__).parent))
+
 import streamlit as st
 import shutil
 from string import whitespace
 from io import StringIO
-from pathlib import Path
 from scripts.makeblastdb import *
 from scripts.utils import *
 from multiprocessing import cpu_count
