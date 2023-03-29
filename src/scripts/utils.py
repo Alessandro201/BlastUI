@@ -31,7 +31,7 @@ class GenomeData:
         self.genome: str = genome
 
 
-def get_programs_path(blast_programs: list[str] = None):
+def get_programs_path(blast_programs: list[str] = None) -> dict[str, Path] | None:
     """
     Returns a dictionary with the paths to the blast executables.
     It gives priority to the programs in the Binaries folder, and if they are not found, it looks for them in $PATH.
@@ -44,16 +44,17 @@ def get_programs_path(blast_programs: list[str] = None):
                           'makeblastdb', 'makembindex', 'tblastn_vdb']
 
     blast_exec = dict()
+    platform = sys.platform
 
     # Find programs in Binaries folder
     for program in blast_programs:
-        match sys.platform:
+        match platform:
             case 'linux' | 'linux2' | 'darwin':
                 program_path = Path('./Binaries/bin', program)
             case "win32":
                 program_path = Path('./Binaries/bin', program + '.exe')
             case _:
-                raise OSError(f'Your platform ({sys.platform}) is not supported, there are no blast executables '
+                raise OSError(f'Your platform ({platform}) is not supported, there are no blast executables '
                               f'for your Operating System.')
 
         blast_exec[program] = program_path if program_path.exists() else None
@@ -171,8 +172,8 @@ def generate_xlsx_table(df) -> bytes:
     return output.getvalue()
 
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+def resource_path(relative_path='.'):
+    """ Get absolute path to resources, works for dev and for PyInstaller """
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
