@@ -12,7 +12,7 @@ from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_downloader import BlastDownloader, DownloadError
 from scripts.utils import *
-import ftplib
+import ftputil.error
 
 
 def set_not_check_blast():
@@ -87,7 +87,7 @@ def main():
         except DownloadError:
             st.error('The downloaded BLAST was corrupted (hashes do not match). Try again.')
             st.stop()
-        except ftplib.all_errors as e:
+        except ftputil.error as e:
             st.error('There was an error during the download. Try again.')
             raise e
 
