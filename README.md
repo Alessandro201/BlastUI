@@ -40,6 +40,7 @@ The data used to produce the images is not the same in all of them.
 - streamlit-option-menu
 - pandas
 - bokeh 2.4.3 no dependencies
+- ftputil
 
 ## Installation
 #### Conda
@@ -48,7 +49,7 @@ The data used to produce the images is not the same in all of them.
 git pull https://github.com/Alessandro201/BlastUI/
 conda create -n BlastUI python=3.10
 conda activate BlastUI
-pip install pandas streamlit streamlit-aggrid==0.3.3 streamlit-extras streamlit-option-menu
+pip install pandas streamlit streamlit-aggrid==0.3.3 streamlit-extras streamlit-option-menu ftputil
 pip install --no-deps bokeh==2.4.3
 
 ```
