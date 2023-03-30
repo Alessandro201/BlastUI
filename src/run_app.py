@@ -7,4 +7,5 @@ if __name__ == '__main__':
     freeze_support()
 
     # This function was created inside our streamlit framework -> streamlit.web.cli
+    # cli._main_run_cl(str(Path(cwd, 'Home.py')), 'streamlit run')
     cli._main_run_cl('Home.py', 'streamlit run')

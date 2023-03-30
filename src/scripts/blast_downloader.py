@@ -3,10 +3,11 @@ import shutil
 import sys
 import os
 import tarfile
-from ftplib import FTP
 import streamlit as st
 from pathlib import Path
 import stat
+
+import ftputil
 
 
 class DownloadError(Exception):
@@ -50,11 +51,12 @@ class BlastDownloader:
 
         self.force_download = force_download
 
-        try:
-            self.ftp = FTP(host, encoding='latin-1')
-            self.ftp.login()
-            self.ftp.cwd(directory_url)
+        with ftputil.FTPHost(host, 'anonymous', 'anonymous') as ftp_host:
+            self.ftp: ftputil.FTPHost = ftp_host
+            ftp_host.chdir(directory_url)
+
             self.filename, self.filesize, self.md5filename = self.get_download_file()
+
             self.filesize = int(self.filesize)
             self.downloaded_bytes = 0
 
@@ -91,9 +93,6 @@ class BlastDownloader:
             self.file_handle = None
             self.download()
 
-        finally:
-            self.ftp.quit()
-
         self.extract_bin()
         self.remove_unnecessary_executables()
 
@@ -101,30 +100,26 @@ class BlastDownloader:
         self.md5_download_path.unlink()
 
     def get_download_file(self):
-        for file in self.ftp.mlsd():
-            file_name = file[0]
-            file_type = file[1]['type']
-            file_size = file[1]['size']
-
-            platform = sys.platform
-            if platform == "linux" or platform == "linux2":
+        match platform := sys.platform:
+            case 'linux' | 'linux2':
                 os_name = 'linux'
-            elif platform == "win32":
+            case 'win32':
                 os_name = 'win64'
-            elif platform == 'darwin':
+            case 'darwin':
                 os_name = 'macosx'
-            else:
+            case _:
                 raise OSError(f'Your platform ({platform}) is not supported.')
 
-            if not file_type == 'file':
+        for file in self.ftp.listdir(self.ftp.curdir):
+            file_size = self.ftp.lstat(file).st_size
+
+            if not self.ftp.path.isfile(file):
                 continue
 
-            if file_name.endswith(f'{os_name}.tar.gz'):
-                return file_name, file_size, file_name + '.md5'
+            if file.endswith(f'{os_name}.tar.gz'):
+                return file, file_size, file + '.md5'
 
     def _write_file(self, data):
-        self.file_handle.write(data)
-
         self.downloaded_bytes += len(data)
         percentage = round((self.downloaded_bytes / self.filesize) * 100)
         percentage = min(percentage, 100)
@@ -133,12 +128,8 @@ class BlastDownloader:
                                             f'({percentage}%)')
 
     def download(self):
-        self.file_handle = open(self.download_path, 'wb')
-        try:
-            self.ftp.retrbinary("RETR " + self.filename, self._write_file, blocksize=8*1024)
-            self.ftp.retrbinary("RETR " + self.md5filename, Path(self.md5_download_path).write_bytes)
-        finally:
-            self.file_handle.close()
+        self.ftp.download(self.filename, self.download_path, callback=self._write_file)
+        self.ftp.download(self.md5filename, self.md5_download_path)
 
         self.check_hash()
 

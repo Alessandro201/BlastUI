@@ -1,9 +1,15 @@
+import sys
+from pathlib import Path
+
+# Needed to search for scripts in the parent folder
+sys.path.append(str(Path(__file__).parent))
+
 import pandas as pd
 import os
 import base64
 import json
 from math import ceil
-from pathlib import PurePath, Path
+from pathlib import PurePath
 from typing import Union
 
 import streamlit as st
@@ -239,9 +245,15 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
     row_columns_index = len(built['columnDefs']) - 1
     built['columnDefs'].insert(0, built['columnDefs'].pop(row_columns_index))
 
+    if df.shape[0] > 25:
+        height = {'height': 760}
+
+    else:
+        height = {'domLayout': 'autoHeight'}
+
     kwargs = {
         'gridOptions': built,
-        'height': 800,
+        **height,
         'width': '100%',
         'data_return_mode': DataReturnMode.FILTERED_AND_SORTED,
         'update_on': ['modelUpdated'],
@@ -349,7 +361,7 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon='🧬')
+                       page_icon=Path(resource_path('.'), 'icon.png').read_bytes())
 
     st.title('Blast results!')
     sidebar_options()
