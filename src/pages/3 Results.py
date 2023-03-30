@@ -187,6 +187,7 @@ def set_download_buttons(container=None):
 def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
     gb = GridOptionsBuilder.from_dataframe(df)
 
+    gb.configure_side_bar()
     gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=100)
     gb.configure_selection('multiple',
                            use_checkbox=False,
@@ -196,13 +197,26 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
                            rowMultiSelectWithClick=True)
 
     gb.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc='avg')
-
     gb.configure_column("Row", valueGetter="node.rowIndex + 1", enableRowGroup=False, aggFunc='first', pinned='left')
     gb.configure_columns(['query_title', 'strain', 'node'], aggFunc='count')
     gb.configure_column('id', hide=True)
     gb.configure_column('query_id', hide=True)
 
-    gb.configure_side_bar()
+    # Suppress the virtualisation of the columns. In this way the autosize of the column works as stated in the docs
+    # https://www.ag-grid.com/javascript-data-grid/column-sizing/#auto-size-columns
+    other_options = {'suppressColumnVirtualisation': True}
+    gb.configure_grid_options(**other_options)
+
+    gridOptions = gb.build()
+
+    # Move the row column to the first position
+    row_columns_index = len(gridOptions['columnDefs']) - 1
+    gridOptions['columnDefs'].insert(0, gridOptions['columnDefs'].pop(row_columns_index))
+
+    if df.shape[0] > 25:
+        height = {'height': 760}
+    else:
+        height = {'domLayout': 'autoHeight'}
 
     # Define custom CSS
     custom_css = {
@@ -237,24 +251,10 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
         }
     }
 
-    gb.configure_grid_options()
-
-    built = gb.build()
-
-    # Move the row column to the first position
-    row_columns_index = len(built['columnDefs']) - 1
-    built['columnDefs'].insert(0, built['columnDefs'].pop(row_columns_index))
-
-    if df.shape[0] > 25:
-        height = {'height': 760}
-
-    else:
-        height = {'domLayout': 'autoHeight'}
-
     kwargs = {
-        'gridOptions': built,
-        **height,
+        'gridOptions': gridOptions,
         'width': '100%',
+        **height,
         'data_return_mode': DataReturnMode.FILTERED_AND_SORTED,
         'update_on': ['modelUpdated'],
         'columns_auto_size_mode': ColumnsAutoSizeMode.FIT_CONTENTS,
@@ -263,7 +263,7 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
         'allow_unsafe_jscode': True,
         'custom_css': custom_css,
         'row_buffer': 20,
-        'enable_quicksearch': True
+        'enable_quicksearch': False
     }
 
     return kwargs
