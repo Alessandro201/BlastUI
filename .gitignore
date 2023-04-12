@@ -120,7 +120,6 @@ var/
 wheels/
 share/python-wheels/
 *.egg-info/
-hooks/
 .installed.cfg
 *.egg
 MANIFEST
@@ -130,7 +129,6 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
 
 # Installer logs
 pip-log.txt
