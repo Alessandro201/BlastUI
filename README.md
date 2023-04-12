@@ -48,3 +48,16 @@ pip install --no-deps bokeh==2.4.3
 ```
 python ./run_app.py
 ```
+
+## Development
+If you want to develop the app, you may need to install pyinstaller to package it:
+```
+pip install pyinstaller
+```
+
+And once you're done, you can package the app with:
+```
+pyinstaller --clean -y .\create_package.spec 
+```
+
+Check that `./.streamlit`, `./pages` and `./scripts` folders are present in the top-level directory of the output otherwise the application won't work.
