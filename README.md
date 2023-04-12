@@ -1,21 +1,17 @@
 # BlastUI
+A graphical interface for BLAST to run queries against your own local sequences.
+
 From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
 > The Basic Local Alignment Search Tool (BLAST) finds regions of local similarity between sequences. 
 The program compares nucleotide or protein sequences to sequence databases and calculates the 
 statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships 
 between sequences as well as help identify members of gene families. 
 
-This WebApp is a simple interface to run blast locally. 
-
 ## Features
 - Blast queries against your own sequences
 - Visualize the results, filter and aggregate them
 - Graphical summary of the alignments
 - Save the results as Excel or CSV files
-- Save the hit sequences or the alignments
-- Find multiple hits from the same sequence
-
-It also has a dark mode.
 
 <br>
 <br>
@@ -32,15 +28,9 @@ It also has a dark mode.
 
 The data used to produce the images is not the same in all of them. 
 
-## Requirements
-- python >= 3.10
-- streamlit
-- streamlit-aggrid 0.3.3 right now 0.3.4post2 does not work well
-- streamlit-extras
-- streamlit-option-menu
-- pandas
-- bokeh 2.4.3 no dependencies
-- ftputil
+## Additional features
+- Save the hit sequences or the alignments
+- Find multiple hits from the same sequence
 
 ## Installation
 #### Conda
@@ -56,5 +46,5 @@ pip install --no-deps bokeh==2.4.3
 
 ## Quickstart
 ```
-python -m streamlit src/Home.py
+python ./run_app.py
 ```
