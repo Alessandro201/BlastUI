@@ -1,6 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
 from pathlib import Path
+import sys
+
+PYTHON_ENV_DIR = Path(sys.executable).parent
+
 
 datas = []
 datas += collect_data_files('st_aggrid')
@@ -9,10 +13,9 @@ datas += collect_data_files('xyzservices')
 datas += collect_data_files('bokeh')
 datas += collect_data_files('st_keyup')
 datas += [
-    ("C:/ProgramData/Miniconda3/envs/streamlit_test/Lib/site-packages/altair/vegalite/v4/schema/vega-lite-schema.json",
-     "./altair/vegalite/v4/schema/"),
-    ("C:/ProgramData/Miniconda3/envs/streamlit_test/Lib/site-packages/streamlit/static", "./streamlit/static"),
-    ("C:/ProgramData/Miniconda3/envs/streamlit_test/Lib/site-packages/streamlit/runtime", "./streamlit/runtime"),
+    (str(PYTHON_ENV_DIR / "Lib/site-packages/altair/vegalite/v4/schema/vega-lite-schema.json"), "./altair/vegalite/v4/schema/"),
+    (str(PYTHON_ENV_DIR / "Lib/site-packages/streamlit/static"), "./streamlit/static"),
+    (str(PYTHON_ENV_DIR / "Lib/site-packages/streamlit/runtime"), "./streamlit/runtime"),
     ("./icon.png", "."),
 ]
 
