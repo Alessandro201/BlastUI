@@ -6,6 +6,8 @@ import sys
 PYTHON_ENV_DIR = Path(sys.executable).parent
 
 
+APP_NAME = 'BlastUI'
+
 datas = []
 datas += collect_data_files('st_aggrid')
 datas += collect_data_files('streamlit_option_menu')
@@ -58,7 +60,6 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-
 # Remove the scripts from the Analysis object so that they are not included in the EXE
 scripts_name = [Path(script).name for script in scripts]
 for item in a.scripts:
@@ -73,7 +74,7 @@ exe = EXE(pyz,
           a.zipfiles,
           a.datas,
           [('icon.png', Path('icon.png').resolve(), 'DATA')],
-          name='BlastUI',
+          name=APP_NAME,
           debug=False,
           bootloader_ignore_signals=False,
           strip=False,
@@ -82,7 +83,6 @@ exe = EXE(pyz,
           runtime_tmpdir=None,
           console=True,
           icon='icon.png')
-
 
 # Add the scripts to the COLLECT object so that they are copied to the dist folder
 items_to_collect = list()
@@ -96,5 +96,15 @@ coll = COLLECT(exe,
                strip=False,
                upx=True,
                upx_exclude=[],
-               name='BlastUI',
+               name=APP_NAME,
                )
+
+from pathlib import Path
+from sys import platform
+
+if platform == 'win32':
+    # Remove the .exe file from the dist folder
+    Path(f'dist/{APP_NAME}.exe').unlink()
+elif platform == 'linux':
+    # Remove the executable file from the dist folder
+    Path(f'dist/{APP_NAME}').unlink()
