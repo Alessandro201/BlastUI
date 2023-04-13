@@ -1,12 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
 from pathlib import Path
+from sys import platform
 import sys
 
-PYTHON_ENV_DIR = Path(sys.executable).parent
-
-
 APP_NAME = 'BlastUI'
+PYTHON_ENV_DIR = Path(sys.executable).parent
 
 datas = []
 datas += collect_data_files('st_aggrid')
@@ -15,7 +14,8 @@ datas += collect_data_files('xyzservices')
 datas += collect_data_files('bokeh')
 datas += collect_data_files('st_keyup')
 datas += [
-    (str(PYTHON_ENV_DIR / "Lib/site-packages/altair/vegalite/v4/schema/vega-lite-schema.json"), "./altair/vegalite/v4/schema/"),
+    (str(PYTHON_ENV_DIR / "Lib/site-packages/altair/vegalite/v4/schema/vega-lite-schema.json"),
+        "./altair/vegalite/v4/schema/"),
     (str(PYTHON_ENV_DIR / "Lib/site-packages/streamlit/static"), "./streamlit/static"),
     (str(PYTHON_ENV_DIR / "Lib/site-packages/streamlit/runtime"), "./streamlit/runtime"),
     ("./icon.png", "."),
@@ -98,9 +98,6 @@ coll = COLLECT(exe,
                upx_exclude=[],
                name=APP_NAME,
                )
-
-from pathlib import Path
-from sys import platform
 
 if platform == 'win32':
     # Remove the .exe file from the dist folder
