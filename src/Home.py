@@ -108,8 +108,8 @@ def main():
         st.write('The next step is to create your genome database from the fasta files. You can manage your '
                  'databases by going to the corresponding page.')
 
-        if st.button('Go to the database page', on_click=set_not_check_blast):
-            switch_page('Manage Genome Databases')
+        if st.button('Go to "Manage Databases" page', on_click=set_not_check_blast):
+            switch_page('Manage Databases')
 
 
 if __name__ == '__main__':

@@ -68,7 +68,7 @@ def main():
                        page_icon=Path(resource_path('.'), 'icon.png').read_bytes())
 
     sidebar_options()
-    st.title("Manage databases")
+    st.title("Manage Databases")
 
     # Check that BLAST is installed
     if 'blast_exec' not in st.session_state:

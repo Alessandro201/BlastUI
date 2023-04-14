@@ -323,10 +323,10 @@ def choose_analysis_to_load() -> BlastResponse:
     analysis_outputs = sorted(analysis_outputs, reverse=True)
 
     if not analysis_outputs:
-        st.warning('Please run a BLAST search first in "Run Blast" page.')
+        st.warning('Please run a BLAST search first in "Blast Query" page.')
 
-        if st.button('Go to "Run Blast" page'):
-            switch_page('Run Blast')
+        if st.button('Go to "Blast Query" page'):
+            switch_page('Blast Query')
 
         st.stop()
 
