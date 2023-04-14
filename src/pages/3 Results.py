@@ -489,6 +489,9 @@ def main():
             st.warning('No alignments to show')
             raise fragile.Break()  # exit with statement
 
+        st.write(f"Tip: The alignments are shown in the same order as the table. "
+                 f"The number on the left corresponds to the row in the table.")
+
         items_per_page = 50
         n_rows = grid_df.shape[0]
         n_pages = ceil(n_rows / items_per_page)  # Round UP
