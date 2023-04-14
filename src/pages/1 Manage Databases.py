@@ -93,7 +93,70 @@ def main():
 
     st.write('')
 
-    create_tab, manage_tab = st.tabs(['Create new database', 'Manage databases'])
+    manage_tab, create_tab = st.tabs(['📄 Manage Databases', '➕ Create New Database'])
+
+    with fragile(manage_tab):
+        st.subheader('Here you can view the databases you have created:')
+
+        Path(Path().cwd(), 'BlastDatabases').mkdir(exist_ok=True, parents=True)
+        databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
+
+        if databases:
+            st.markdown(''.join(['🔹 ' + db.name + '<br>' for db in databases]), unsafe_allow_html=True)
+        else:
+            st.info('No database found. Create one in the "Create New Database" tab.')
+            raise fragile.Break()  # exit with statement
+
+        ### RENAME DATABASE
+        st.markdown("""
+                    <br>
+
+                    ##### Rename database
+                    """, unsafe_allow_html=True)
+
+        db = ndf_selectbox('Select database', [db.name for db in databases], key='choose_rename_db')
+
+        if db:
+            new_name = st_keyup('New name', value=f'{db}')
+            check_db_name_validity(new_name)
+
+        btn_disabled = False if db else True
+        if st.button('Rename', disabled=btn_disabled):
+            with st.empty():
+                old_db_path = Path(Path().cwd(), 'BlastDatabases', db)
+                new_db_path = Path(Path().cwd(), 'BlastDatabases', new_name.strip(whitespace))
+                old_db_path.rename(new_db_path)
+
+            st.session_state['database_renamed'] = True
+            st.experimental_rerun()
+
+        if 'database_renamed' in st.session_state:
+            st.success('Database renamed!')
+            del st.session_state['database_renamed']
+
+        ### DELETE DATABASE
+        st.markdown("""
+                    <br>
+
+                    ##### Delete database
+                    """, unsafe_allow_html=True)
+
+        db = ndf_selectbox('Select database', [db.name for db in databases], key='delete_rename_db')
+
+        btn_disabled = False if db else True
+        if st.button('Delete', disabled=btn_disabled):
+            def delete_database():
+                db_path = Path(Path().cwd(), 'BlastDatabases', db)
+                shutil.rmtree(db_path)
+
+                st.session_state['database_deleted'] = True
+
+            st.warning(f"The database ***{db}*** will be deleted!")
+            st.button('Confirm', on_click=delete_database)
+
+        if 'database_deleted' in st.session_state:
+            st.success('Database deleted!')
+            del st.session_state['database_deleted']
 
     with create_tab:
         st.write('Upload the genomes you want to use. To clear the list refresh the page.')
@@ -182,69 +245,6 @@ def main():
                     raise e
 
                 st.success('Done!')
-
-    with manage_tab:
-        st.subheader('Here you can view the databases you have created:')
-
-        Path(Path().cwd(), 'BlastDatabases').mkdir(exist_ok=True, parents=True)
-        databases = list([path for path in Path(Path().cwd(), 'BlastDatabases').iterdir() if path.is_dir()])
-
-        if databases:
-            st.markdown(''.join(['🔹 ' + db.name + '<br>' for db in databases]), unsafe_allow_html=True)
-        else:
-            st.info('No databases found.')
-            st.stop()
-
-        ### RENAME DATABASE
-        st.markdown("""
-                    <br>
-
-                    ##### Rename database
-                    """, unsafe_allow_html=True)
-
-        db = ndf_selectbox('Select database', [db.name for db in databases], key='choose_rename_db')
-
-        if db:
-            new_name = st_keyup('New name', value=f'{db}')
-            check_db_name_validity(new_name)
-
-        btn_disabled = False if db else True
-        if st.button('Rename', disabled=btn_disabled):
-            with st.empty():
-                old_db_path = Path(Path().cwd(), 'BlastDatabases', db)
-                new_db_path = Path(Path().cwd(), 'BlastDatabases', new_name.strip(whitespace))
-                old_db_path.rename(new_db_path)
-
-            st.session_state['database_renamed'] = True
-            st.experimental_rerun()
-
-        if 'database_renamed' in st.session_state:
-            st.success('Database renamed!')
-            del st.session_state['database_renamed']
-
-        ### DELETE DATABASE
-        st.markdown("""
-                    <br>
-
-                    ##### Delete database
-                    """, unsafe_allow_html=True)
-
-        db = ndf_selectbox('Select database', [db.name for db in databases], key='delete_rename_db')
-
-        btn_disabled = False if db else True
-        if st.button('Delete', disabled=btn_disabled):
-            def delete_database():
-                db_path = Path(Path().cwd(), 'BlastDatabases', db)
-                shutil.rmtree(db_path)
-
-                st.session_state['database_deleted'] = True
-
-            st.warning(f"The database ***{db}*** will be deleted!")
-            st.button('Confirm', on_click=delete_database)
-
-        if 'database_deleted' in st.session_state:
-            st.success('Database deleted!')
-            del st.session_state['database_deleted']
 
 
 if __name__ == "__main__":
