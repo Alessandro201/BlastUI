@@ -13,7 +13,6 @@ datas += collect_data_files('streamlit_option_menu')
 datas += collect_data_files('xyzservices')
 datas += collect_data_files('bokeh')
 datas += collect_data_files('st_keyup')
-datas += [('./media', './media')]
 datas += [
     (str(PYTHON_ENV_DIR / "Lib/site-packages/altair/vegalite/v4/schema/vega-lite-schema.json"),
         "./altair/vegalite/v4/schema/"),
