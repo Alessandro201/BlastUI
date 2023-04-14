@@ -4,6 +4,11 @@ developmentMode = false
 [server]
 port = 8501
 
+
+# Given the nature of streamlit, many object are saved in the session state. These two values determine
+# how big can these objects be. If you are getting errors when anlysing large datasets, you can increase
+# these values, but they should be plenty enough for most cases.
+
 # Max size, in megabytes, for files uploaded with the file_uploader.
 # Default: 200
 maxUploadSize = 2000
