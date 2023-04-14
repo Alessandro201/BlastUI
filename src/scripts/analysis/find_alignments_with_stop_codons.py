@@ -1,7 +1,8 @@
-import streamlit as st
-import pandas as pd
 import random
 from string import ascii_letters
+
+import pandas as pd
+import streamlit as st
 
 from scripts.utils import generate_xlsx_table
 

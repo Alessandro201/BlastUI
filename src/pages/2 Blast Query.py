@@ -1,20 +1,21 @@
 import sys
 from pathlib import Path
 
-# Needed to search for scripts in the parent folder
+# Needed to search for scripts in the parent folder when using PyInstaller
 sys.path.append(str(Path(__file__).parent))
 
 import shlex
-import time
 from io import StringIO, BytesIO
 from multiprocessing import cpu_count
 from datetime import datetime
+from subprocess import CalledProcessError
 
+import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_response import *
-from scripts.utils import *
+from scripts.blast_response import load_analysis
+from scripts import utils
 
 
 @st.cache_data(show_spinner=False)
@@ -52,7 +53,7 @@ def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, 
     cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt 15 '
                       f'-out "{out_file}" -num_threads {threads} {additional_params}')
 
-    run_command(cmd)
+    utils.run_command(cmd)
     return out_file
 
 
@@ -449,14 +450,14 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon=BytesIO(resource_path('./icon.png').read_bytes()))
+                       page_icon=BytesIO(utils.resource_path('./icon.png').read_bytes()))
 
     st.title('Blast queries against your local database!')
     sidebar_options()
 
     # Check that BLAST is installed
     if 'blast_exec' not in st.session_state:
-        blast_exec = get_programs_path()
+        blast_exec = utils.get_programs_path()
         st.session_state['blast_exec'] = blast_exec
 
     if st.session_state['blast_exec'] is None:
@@ -523,7 +524,7 @@ def main():
 
                 st.session_state['blast_output_file'] = blast_output_file
 
-        except subprocess.CalledProcessError as e:
+        except CalledProcessError as e:
             stderr = e.stderr
             st.error(f'Error running blast: {stderr}')
 

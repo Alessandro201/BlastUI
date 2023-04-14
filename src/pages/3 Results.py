@@ -1,7 +1,7 @@
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 
-# Needed to search for scripts in the parent folder
+# Needed to search for scripts in the parent folder when using PyInstaller
 sys.path.append(str(Path(__file__).parent))
 
 import pandas as pd
@@ -9,18 +9,17 @@ import os
 import base64
 import json
 from math import ceil
-from pathlib import PurePath
 from typing import Union
 
 import streamlit as st
 import streamlit.components.v1 as components
 from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
-from streamlit_option_menu import option_menu
 from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_response import *
-from scripts.utils import *
+from scripts.blast_response import load_analysis, BlastResponse
+from scripts import utils
+from scripts.utils import fragile
 from scripts.analysis import find_strain_with_multiple_hits, find_alignments_with_stop_codons
 
 from io import BytesIO
@@ -51,7 +50,7 @@ def download_table_xlsx():
     df = df.drop(columns=['id', 'query_id'])
 
     filename = 'blast.xlsx'
-    data = generate_xlsx_table(df)
+    data = utils.generate_xlsx_table(df)
     components.html(html_download(data, filename), height=None, width=None)
 
 
@@ -361,14 +360,14 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon=BytesIO(resource_path('./icon.png').read_bytes()))
+                       page_icon=BytesIO(utils.resource_path('./icon.png').read_bytes()))
 
     st.title('Blast results!')
     sidebar_options()
 
     # Check that BLAST is installed
     if 'blast_exec' not in st.session_state:
-        blast_exec = get_programs_path()
+        blast_exec = utils.get_programs_path()
         st.session_state['blast_exec'] = blast_exec
 
     if st.session_state['blast_exec'] is None:
@@ -390,7 +389,7 @@ def main():
     tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'Analysis', 'About this analysis'])
     tab_table, tab_alignments, tab_graphic_summary, tab_analysis, tab_about = tabs
 
-    with fragile(tab_table):
+    with utils.fragile(tab_table):
 
         st.subheader('Download')
         download_container = st.empty()

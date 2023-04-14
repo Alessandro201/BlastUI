@@ -1,15 +1,16 @@
 import sys
 from pathlib import Path
 
-# Needed to search for scripts in the parent folder
+# Needed to search for scripts in the parent folder when using PyInstaller
 sys.path.append(str(Path(__file__).parent))
 
 import streamlit as st
 import shutil
 from string import whitespace
-from io import StringIO
-from scripts.makeblastdb import *
-from scripts.utils import *
+from io import StringIO, BytesIO
+from scripts.makeblastdb import MakeBlastDB
+from scripts import utils
+from scripts.utils import GenomeData, fragile
 from multiprocessing import cpu_count
 from subprocess import CalledProcessError
 
@@ -65,7 +66,7 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon=BytesIO(resource_path('./icon.png').read_bytes()))
+                       page_icon=BytesIO(utils.resource_path('./icon.png').read_bytes()))
 
     sidebar_options()
     st.title("Manage Databases")
@@ -73,7 +74,7 @@ def main():
     # Check that BLAST is installed
     if 'blast_exec' not in st.session_state:
         print('Checking blast...')
-        blast_exec = get_programs_path()
+        blast_exec = utils.get_programs_path()
         st.session_state['blast_exec'] = blast_exec
 
     if st.session_state['blast_exec'] is None:

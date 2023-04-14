@@ -1,11 +1,11 @@
+import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
-import streamlit as st
 from io import BytesIO
+from pathlib import Path
+
 import pandas as pd
-import os
 
 
 class fragile(object):
