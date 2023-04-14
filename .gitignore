@@ -18,7 +18,7 @@ OLD_FILES
 .idea/**/shelf
 
 # Code style settings
-.idea/**/codeStyles
+.idea/codeStyles
 
 # AWS User-specific
 .idea/**/aws.xml
