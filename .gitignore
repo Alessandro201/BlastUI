@@ -1,6 +1,7 @@
 src/BlastDatabases
 src/Binaries
 src/Analysis
+OLD_FILES
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,pycharm+all
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,pycharm+all
@@ -15,6 +16,9 @@ src/Analysis
 .idea/**/usage.statistics.xml
 .idea/**/dictionaries
 .idea/**/shelf
+
+# Code style settings
+.idea/**/codeStyles
 
 # AWS User-specific
 .idea/**/aws.xml
