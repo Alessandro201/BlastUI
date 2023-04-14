@@ -54,7 +54,7 @@ def check_db_name_validity(db_name: str):
     unallowed_chars = ['\\', '/', ':', '*', '?', '"', '<', '>'] + [*whitespace.replace(' ', '')]
     if test_path.parent != Path(blast_db_dir).resolve() or \
             any([char in db_name for char in unallowed_chars]):
-        st.error(f'Filename "{db_name!r}" is not valid. You cannot enter "\\/\:*?"<>|"')
+        st.error(f'Filename {db_name!r} is not valid. You cannot use the characters: \\\\/:*?"<>|')
         st.stop()
 
     if test_path.exists():
@@ -82,7 +82,7 @@ def main():
             switch_page('Home')
         st.stop()
 
-    stoggle('❓ What is a blast database? ',
+    stoggle('❓ What is a BLAST database? ',
             """
     To blast a query against some genomes, you need to first create a blast database with them. 
     This process will take a few minutes, depending on the number of genomes and their size, 
@@ -125,9 +125,8 @@ def main():
 
                 stoggle('❓ Why renaming headers?',
                         """
-                        Blast requires that the headers of the fasta files are unique. If you have 
-                        uploaded genomes with repeated headers, you can choose to rename them. 
-                        Each contig will be renamed as follows: "[file_name]_NODE_[contig_number]" so 
+                        Blast requires that the headers of the fasta files are unique. If you select. 
+                        this option, each contig will be renamed as follows: "[file_name]_NODE_[contig_number]" so 
                         be sure to not upload fasta files with the same name.
                         Ideally, the fasta files should have the same name as the genome they contain.
                         """)
@@ -143,7 +142,7 @@ def main():
                         removing small contigs, as you may remove actual proteins. 
                         Furthermore, you should have removed them before annotating the genome.
                         """)
-                st.checkbox('Remove small contigs from the fasta files', key='remove_contigs_checkbox', value=True)
+                st.checkbox('Remove small contigs', key='remove_contigs_checkbox', value=True)
 
                 st.number_input('Minimum contig length', key='min_length',
                                 disabled=not st.session_state['remove_contigs_checkbox'],
