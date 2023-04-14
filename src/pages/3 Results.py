@@ -389,34 +389,54 @@ def main():
     tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'Analysis', 'About this analysis'])
     tab_table, tab_alignments, tab_graphic_summary, tab_analysis, tab_about = tabs
 
-    with utils.fragile(tab_table):
+    with fragile(tab_table):
 
         st.subheader('Download')
         download_container = st.empty()
         set_download_buttons(download_container)
 
-        tab_description = st.expander('How to work with the table', expanded=False)
+        tab_description = st.expander('❓ How to work with the table', expanded=False)
         with tab_description:
             st.markdown("""
             ##### 1) Main features
             You can work with this table in a similar fashion as you would do with a spreadsheet.
-            You can sort columns, and filter/aggregate the data by hovering on them and 
-            clicking on the menu icon that appears. Alternatively, you can perform the same steps with the 
-            vertical tabs on the right.
+            Click on a column to sort it. You can also group by and filter the columns.
             
-            
+            """)
+
+            # streamlit.image() cannot read from the temporary folder created by PyInstaller (sys._MEIPASS)
+            # given by resource_path(), so we need to give it the bytes of the image.
+            col1, col2, col3 = st.columns([1, 1, 1])
+            col1.image(utils.resource_path('./media/hover_menu.png').read_bytes(),
+                       "By hovering on a header you can access the menu of the column")
+            col2.image(utils.resource_path('./media/hover_menu_group_by.png').read_bytes(),
+                       "You can group the column by its values")
+            col3.image(utils.resource_path('./media/hover_menu_filter_by.png').read_bytes(),
+                       'You can filter the column and choose which values to show')
+
+            st.image(utils.resource_path('./media/vertical_tabs_aggrid.png').read_bytes(),
+                     "Alternatively, you can use the vertical tabs to access the same options")
+
+            st.markdown("""
             ##### 1.1) Example
-            For example, you can group by *"Strain"* to see how many hits each strain has, and click on the
+            For example, you can group by *"strain"* to see how many hits each strain has, and click on the
             *"count(query_title)"* column to sort it. It's very useful if you want to quickly find multiple
             matches for the same strain, like in a search for a duplicate gene. It works best if you have only 
             one query, otherwise it gets a bit messy.
-            
+            """)
+
+            st.image(utils.resource_path('./media/group_by_strain.png').read_bytes(), "Group by strain")
+            st.image(utils.resource_path('./media/group_by_strain2.png').read_bytes(),
+                     "Sort by count(query_title). You can see two matches of \"Query_1\" in the same strain \"SEB053\"")
+
+            st.markdown("""
             ##### 2) Selecting rows
             You can select rows by clicking on them. To select multiple rows, press *ctrl* while clicking, or
             click on a row and while pressing *shift* click another one to select all the rows in between.
-            To reset any filtering, sorting, aggregation or selection you can click again on the *reset table*
-            button just below the table on the right.
             
+            ##### 3) Resetting the table
+            To reset any filtering, sorting, aggregation or selection you can click on the menu of any column and 
+            click on "Reset Columns".
             """)
 
         if df.shape[0] > 100_000:
@@ -545,7 +565,6 @@ def main():
 
         program = blast_response.program
         program_and_version = blast_response.metadata['version']
-        metadata = blast_response.metadata
         params = blast_response.metadata['params']
 
         if program == 'blastn':
@@ -606,12 +625,9 @@ def main():
         st.markdown(f"""
             ## Analysis made with {program_and_version}
         
-            #### Reference: 
-            {metadata['reference']} 
-        
             #### Options:
             {results_params}
-            
+        
             ---
             """)
 

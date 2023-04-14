@@ -494,7 +494,7 @@ def main():
     st.session_state.db = db
 
     if db is None:
-        st.warning('No databases found. Please make one in the Manage Genome Databases section.')
+        st.warning('No databases found. Please make one in the Manage Databases section.')
         st.stop()
 
     exp = st.expander('⚙️ Advanced options', expanded=False)
@@ -505,7 +505,7 @@ def main():
         st.session_state.switch_to_result_page = False
 
         if 'db' not in st.session_state:
-            st.warning('No databases found. Please make one in the Manage Genome Databases section.')
+            st.warning('No databases found. Please make one in the Manage Databases section.')
             st.stop()
 
         if len(st.session_state.get('query', '')) == 0:
