@@ -565,7 +565,6 @@ def main():
 
         program = blast_response.program
         program_and_version = blast_response.metadata['version']
-        metadata = blast_response.metadata
         params = blast_response.metadata['params']
 
         if program == 'blastn':
@@ -626,12 +625,9 @@ def main():
         st.markdown(f"""
             ## Analysis made with {program_and_version}
         
-            #### Reference: 
-            {metadata['reference']} 
-        
             #### Options:
             {results_params}
-            
+        
             ---
             """)
 
