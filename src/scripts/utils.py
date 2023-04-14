@@ -1,11 +1,11 @@
+import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
-import streamlit as st
 from io import BytesIO
+from pathlib import Path
+
 import pandas as pd
-import os
 
 
 class fragile(object):
@@ -172,7 +172,7 @@ def generate_xlsx_table(df) -> bytes:
     return output.getvalue()
 
 
-def resource_path(relative_path='.'):
+def resource_path(relative_path='.') -> Path:
     """ Get absolute path to resources, works for dev and for PyInstaller """
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
@@ -180,4 +180,4 @@ def resource_path(relative_path='.'):
     except Exception:
         base_path = os.path.abspath(".")
 
-    return os.path.join(base_path, relative_path)
+    return Path(base_path, relative_path)

@@ -1,11 +1,11 @@
 import json as json
-import pandas as pd
-import numpy as np
-import streamlit as st
 import re
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
+import pandas as pd
+import streamlit as st
 from bokeh.models import (ColumnDataSource, HoverTool)
 from bokeh.models import Legend, Rect
 from bokeh.plotting import figure

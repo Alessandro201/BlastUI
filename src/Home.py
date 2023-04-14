@@ -2,7 +2,9 @@
 # It is called by run_app.py
 
 import sys
+from io import BytesIO
 from pathlib import Path
+import shutil
 
 # Needed to search for scripts in the parent folder
 sys.path.append(str(Path(__file__).parent))
@@ -11,7 +13,7 @@ import streamlit as st
 from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_downloader import BlastDownloader, DownloadError
-from scripts.utils import *
+from scripts import utils
 import ftputil.error
 
 
@@ -23,7 +25,7 @@ def main():
     st.set_page_config(page_title='BlastUI',
                        layout='wide',
                        initial_sidebar_state='auto',
-                       page_icon=Path(resource_path('.'), 'icon.png').read_bytes())
+                       page_icon=BytesIO(Path(utils.resource_path('.'), 'icon.png').read_bytes()))
 
     st.title('BlastUI')
     st.markdown("""
@@ -59,7 +61,7 @@ def main():
 
     if st.session_state['check_blast']:
         with st.spinner('Checking if blast is installed...'):
-            blast_exec: dict | None = get_programs_path()
+            blast_exec: dict | None = utils.get_programs_path()
             blast_version: str | None = None
 
             if not blast_exec:
@@ -67,7 +69,7 @@ def main():
                            f'Click the download button to get the latest version.')
 
             else:
-                blast_version = check_blast_version(blast_exec['blastn'])
+                blast_version = utils.check_blast_version(blast_exec['blastn'])
                 st.session_state['blast_exec_version'] = blast_version
                 st.session_state['blast_exec'] = blast_exec
 
@@ -91,8 +93,8 @@ def main():
             st.error('There was an error during the download. Try again.')
             raise e
 
-        blast_exec = get_programs_path()
-        blast_version = check_blast_version(blast_exec['blastn'])
+        blast_exec = utils.get_programs_path()
+        blast_version = utils.check_blast_version(blast_exec['blastn'])
         st.success(f'Blast {blast_version} was downloaded successfully!')
 
         st.session_state['blast_exec_version'] = blast_version
@@ -108,8 +110,8 @@ def main():
         st.write('The next step is to create your genome database from the fasta files. You can manage your '
                  'databases by going to the corresponding page.')
 
-        if st.button('Go to the database page', on_click=set_not_check_blast):
-            switch_page('Manage Genome Databases')
+        if st.button('Go to "Manage Databases" page', on_click=set_not_check_blast):
+            switch_page('Manage Databases')
 
 
 if __name__ == '__main__':

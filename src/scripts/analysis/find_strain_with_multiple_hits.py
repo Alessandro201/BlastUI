@@ -1,7 +1,8 @@
-import streamlit as st
-import pandas as pd
 import random
 from string import ascii_letters
+
+import pandas as pd
+import streamlit as st
 
 from scripts.utils import generate_xlsx_table
 
@@ -94,13 +95,25 @@ def __download_all_alignments(df) -> bytes:
     return alignments
 
 
+def __get_unique_keys(n=1) -> tuple:
+    """Returns a tuple of n unique keys which are not already used by streamlit"""
+
+    keys = set()
+    while len(keys) < n:
+        key = random.choices(ascii_letters, k=10)
+        if key not in st.session_state.keys():
+            keys.add(key)
+
+    return tuple(keys)
+
+
 def __set_download_buttons(df, container=None):
     if not container:
         container = st
 
     col1, col2, col3, col4 = container.columns([1, 1, 1, 1])
 
-    keys = [random.choices(ascii_letters, k=10) for _ in range(4)]
+    keys = __get_unique_keys(4)
 
     # Downloads the whole table
     with col1:

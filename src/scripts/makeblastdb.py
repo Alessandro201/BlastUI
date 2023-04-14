@@ -1,9 +1,10 @@
+import shlex
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os.path import splitext
+from pathlib import Path
 
-import shlex
-
-from scripts.utils import *
+from scripts import utils
+from scripts.utils import GenomeData
 
 
 class MakeBlastDB:
@@ -87,10 +88,11 @@ class MakeBlastDB:
         It's both for clarity (1) and a bit more security (2).
 
         1) When you use blast it will output the name of the contig in which a match was found, but the assembler I
-        used, SPAdes, does not use any meaningful name for the scaffolds. This is a way to know straight away the genome
-        which gave a match.
-        2) It happened that multiple genomes had the same prefix for the contigs. If you use genomes from the same folder
-        and with the same extension you are sure that you will not get any duplicate name.
+            used, SPAdes, does not use any meaningful name for the scaffolds.
+            This is a way to know straight away the genome which gave a match.
+        2) It happened that multiple genomes had the same prefix for the contigs.
+            If you use genomes from the same folder and with the same extension you are sure that
+            you will not get any duplicate name.
 
         :param genome: GenomeData object containing the genome name and the genome as string
         :return:
@@ -137,6 +139,6 @@ class MakeBlastDB:
 
         command = shlex.split(command)
         try:
-            run_command(command)
+            utils.run_command(command)
         finally:
             self.multifasta.unlink()
