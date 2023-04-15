@@ -1,17 +1,15 @@
 import hashlib
-import shutil
-import sys
 import os
-import tarfile
-import streamlit as st
-from pathlib import Path
+import re
+import shutil
 import stat
+import sys
+import tarfile
+import urllib.request
+from contextlib import closing
+from pathlib import Path
 
-import ftputil
-
-
-class DownloadError(Exception):
-    pass
+import streamlit as st
 
 
 def sizeof_fmt(num, suffix="B"):
@@ -38,68 +36,39 @@ def md5(fname):
 
 
 class BlastDownloader:
-    def __init__(self, host: str = None,
-                 directory_url: str = None,
-                 download_folder: Path = None,
-                 force_download=False,
+    def __init__(self,
                  pbar=None):
 
-        if not host:
-            host = 'ftp.ncbi.nlm.nih.gov'
-        if not directory_url:
-            directory_url = 'blast/executables/blast+/LATEST'
+        self.URL = 'https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/'
 
-        self.force_download = force_download
+        download_file, download_file_md5 = self.get_download_files_names()
+        self.filename, self.filesize = download_file
+        self.md5filename, self.md5filesize = download_file_md5
 
-        with ftputil.FTPHost(host, 'anonymous', 'anonymous') as ftp_host:
-            self.ftp: ftputil.FTPHost = ftp_host
-            ftp_host.chdir(directory_url)
+        # Delete the ./bin folder to remove any old file inside it and recreate it.
+        self.download_folder = Path().cwd() / 'bin'
+        shutil.rmtree(self.download_folder, ignore_errors=True)
+        self.download_folder.mkdir(parents=True, exist_ok=True)
 
-            self.filename, self.filesize, self.md5filename = self.get_download_file()
+        self.download_path = self.download_folder / self.filename
+        self.md5_download_path = self.download_folder / self.md5filename
 
-            self.filesize = int(self.filesize)
-            self.downloaded_bytes = 0
+        # Letting the user give a progress bar is useful because he can place it where it wants while
+        # letting this class update it.
+        if not pbar:
+            pbar = st.progress(0)
+        self.pbar = pbar
 
-            if not download_folder:
-                download_folder = Path().cwd() / 'Binaries' / self.filename
-            else:
-                if Path(download_folder).is_file():
-                    raise OSError(f'{download_folder} is not a file')
+        self.downloaded_bytes = 0
 
-                download_folder = Path(download_folder) / self.filename
-
-            self.download_path = Path(download_folder)
-            self.download_path.parent.mkdir(parents=True, exist_ok=True)
-            self.md5_download_path = self.download_path.parent / self.md5filename
-
-            # Letting the user give a progress bar is useful because he can place it where it wants while
-            # letting this class update it.
-            if not pbar:
-                pbar = st.progress(0)
-            self.pbar = pbar.progress(0, text=f'Downloading {self.filename}...')
-
-            if self.download_path.exists():
-                if self.force_download:
-                    self.download_path.unlink()
-                else:
-                    raise OSError(f'{self.filename} already downloaded')
-
-            if self.md5_download_path.exists():
-                if self.force_download:
-                    self.md5_download_path.unlink()
-                else:
-                    raise OSError(f'{self.md5filename} already downloaded')
-
-            self.file_handle = None
-            self.download()
-
+        self.download()
         self.extract_bin()
         self.remove_unnecessary_executables()
 
         self.download_path.unlink()
         self.md5_download_path.unlink()
 
-    def get_download_file(self):
+    def get_download_files_names(self):
         match platform := sys.platform:
             case 'linux' | 'linux2':
                 os_name = 'linux'
@@ -110,16 +79,33 @@ class BlastDownloader:
             case _:
                 raise OSError(f'Your platform ({platform}) is not supported.')
 
-        for file in self.ftp.listdir(self.ftp.curdir):
-            file_size = self.ftp.lstat(file).st_size
+        with closing(urllib.request.urlopen(self.URL)) as r:
+            page_text = r.read().decode('utf-8')
+            matches = re.findall(r'<a href="(.+?)">.+?</a>', page_text)
 
-            if not self.ftp.path.isfile(file):
-                continue
-
+        download_file = None
+        download_file_md5 = None
+        for file in matches:
             if file.endswith(f'{os_name}.tar.gz'):
-                return file, file_size, file + '.md5'
+                with closing(urllib.request.urlopen(self.URL + file)) as r:
+                    size = r.length
+                download_file = (file, size)
 
-    def _write_file(self, data):
+            elif file.endswith(f'{os_name}.tar.gz.md5'):
+                with closing(urllib.request.urlopen(self.URL + file)) as r:
+                    size = r.length
+                download_file_md5 = (file, size)
+
+        if not download_file and not download_file_md5:
+            raise FileNotFoundError(f'Could not find BLAST for your platform ({platform}). '
+                                    f'Please install it manually, either by downloading it from NCBI and placing '
+                                    f'the executables inside the "BlastUI/src/bin" folder or by installing it '
+                                    f'in the $PATH. If you can use BLAST from the terminal, the program should '
+                                    f'be able to use it as well.')
+
+        return download_file, download_file_md5
+
+    def _update_progress(self, data):
         self.downloaded_bytes += len(data)
         percentage = round((self.downloaded_bytes / self.filesize) * 100)
         percentage = min(percentage, 100)
@@ -127,44 +113,62 @@ class BlastDownloader:
                                             f'{sizeof_fmt(self.downloaded_bytes)}/{sizeof_fmt(self.filesize)} '
                                             f'({percentage}%)')
 
+    @staticmethod
+    def _download_file(download_url, download_path, buf_size=1024 * 1024, callback=None, *args, **kwargs):
+        with closing(urllib.request.urlopen(download_url)) as r:
+            with open(download_path, 'wb') as f:
+                while True:
+                    buf = r.read(buf_size)
+                    if not buf:
+                        break
+
+                    if callback:
+                        callback(buf, *args, **kwargs)
+
+                    f.write(buf)
+
     def download(self):
-        self.ftp.download(self.filename, self.download_path, callback=self._write_file)
-        self.ftp.download(self.md5filename, self.md5_download_path)
+        self.pbar.progress(0, text=f'Downloading:    md5 hash...')
+        self._download_file(self.URL + self.md5filename, self.md5_download_path)
+        self._download_file(self.URL + self.filename, self.download_path, buf_size=1024 * 256,
+                            callback=self._update_progress)
+
+        if os.stat(self.download_path).st_size != self.filesize:
+            raise ValueError(f'The downloaded file was corrupted (size does not match). Try again. '
+                             f'downloaded file: {os.stat(self.download_path).st_size}, '
+                             f'original file: {self.filesize}')
+
+        if os.stat(self.md5_download_path).st_size != self.md5filesize:
+            raise ValueError(f'The downloaded file was corrupted (size does not match). Try again. '
+                             f'downloaded file: {os.stat(self.md5_download_path).st_size}, '
+                             f'original file: {self.md5filesize}')
 
         self.check_hash()
 
     def check_hash(self):
-        md5_downloaded_blast = md5(self.download_path)
-        md5_blast = Path(self.md5_download_path).read_text().split(' ')[0]
-        if md5_downloaded_blast != md5_blast:
-            raise DownloadError(f'The downloaded file was corrupted (hashes do not match). Try again.')
+        md5_of_downloaded_file = md5(self.download_path)
+        md5_correct = Path(self.md5_download_path).read_text().split(' ')[0]
+        if md5_of_downloaded_file != md5_correct:
+            raise ValueError(f'The downloaded file was corrupted (hashes do not match). Try again.')
 
     def extract_bin(self):
         self.pbar.progress(100, text=f'Extracting {self.filename}...')
 
-        # If the user wants to force the download, we need to remove the old blast folder and bin folder.
-        blast_dir = self.download_path.parent / self.filename.split('-x64')[0]
-        if blast_dir.exists() and self.force_download:
-            shutil.rmtree(blast_dir)
-
-        bin_dir = self.download_path.parent / 'bin'
-        if bin_dir.exists() and self.force_download:
-            shutil.rmtree(bin_dir)
-
         # Extracting the tar file.
         with tarfile.open(self.download_path, "r:gz") as tar:
-            tar.extractall(path=self.download_path.parent)
+            tar.extractall(path=self.download_folder)
 
         # Moving the bin folder to the parent directory.
-        bin_dir = self.download_path.parent / self.filename.split('-x64')[0] / 'bin'
-        shutil.move(bin_dir, self.download_path.parent)
+        bin_dir = self.download_folder / self.filename.split('-x64')[0] / 'bin'
+
+        for file in bin_dir.iterdir():
+            shutil.move(file, self.download_folder)
         shutil.rmtree(bin_dir.parent)
 
         self.pbar.progress(100, text=f'Done!')
 
     def remove_unnecessary_executables(self):
-        bin_dir = self.download_path.parent / 'bin'
-        for file in bin_dir.iterdir():
+        for file in self.download_folder.iterdir():
             try:
                 if file.suffix == '.dll':
                     continue

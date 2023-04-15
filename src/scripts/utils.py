@@ -50,9 +50,9 @@ def get_programs_path(blast_programs: list[str] = None) -> dict[str, Path] | Non
     for program in blast_programs:
         match platform:
             case 'linux' | 'linux2' | 'darwin':
-                program_path = Path('./Binaries/bin', program)
+                program_path = Path('./bin', program)
             case "win32":
-                program_path = Path('./Binaries/bin', program + '.exe')
+                program_path = Path('./bin', program + '.exe')
             case _:
                 raise OSError(f'Your platform ({platform}) is not supported, there are no blast executables '
                               f'for your Operating System.')
@@ -76,49 +76,6 @@ def get_programs_path(blast_programs: list[str] = None) -> dict[str, Path] | Non
         return blast_exec
 
     return None
-
-
-def get_blast_installation_directory():
-    executables_in = None
-
-    if all(_check_blast_executables_in_bin()):
-        executables_in = './Binaries/bin'
-
-    elif all(_check_blast_executables_in_path()):
-        executables_in = '$PATH'
-    else:
-        pass
-
-    return executables_in
-
-
-def _check_blast_executables_in_bin():
-    """
-    Returns a list of paths to the blast executables in the Binaries folder.
-    If a program is not found, it returns None.
-    :return:
-    """
-    blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']
-
-    for program in blast_programs:
-        program_path = Path('./Binaries/bin', program)
-        if sys.platform == "win32":
-            program_path = Path('./Binaries/bin', program + '.exe')
-
-        yield program_path if program_path.exists() else None
-
-
-def _check_blast_executables_in_path():
-    """
-    Returns a list of paths to the blast executables found in $PATH.
-    If a program is not found, it returns None.
-    :return:
-    """
-
-    blast_programs = ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']
-
-    for program in blast_programs:
-        yield shutil.which(program)
 
 
 def check_blast_version(program_path: Path) -> str:

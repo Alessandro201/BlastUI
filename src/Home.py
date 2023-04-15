@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).parent))
 import streamlit as st
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_downloader import BlastDownloader, DownloadError
+from scripts.blast_downloader import BlastDownloader
 from scripts import utils
 import ftputil.error
 
@@ -86,12 +86,9 @@ def main():
 
         try:
             BlastDownloader(pbar=pbar)
-        except DownloadError:
-            st.error('The downloaded BLAST was corrupted (hashes do not match). Try again.')
+        except ValueError as e:
+            st.error(e)
             st.stop()
-        except ftputil.error as e:
-            st.error('There was an error during the download. Try again.')
-            raise e
 
         blast_exec = utils.get_programs_path()
         blast_version = utils.check_blast_version(blast_exec['blastn'])

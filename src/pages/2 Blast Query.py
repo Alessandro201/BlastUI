@@ -514,7 +514,7 @@ def main():
 
         try:
             with st.spinner(f"Running {st.session_state.blast_mode}..."):
-                st.markdown(f'Blast started at: {datetime.now()}')
+                st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
 
                 blast_output_file = blast(query=st.session_state['query'],
                                           blast_mode=st.session_state['blast_mode'],
