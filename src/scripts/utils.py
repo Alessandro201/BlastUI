@@ -50,9 +50,9 @@ def get_programs_path(blast_programs: list[str] = None) -> dict[str, Path] | Non
     for program in blast_programs:
         match platform:
             case 'linux' | 'linux2' | 'darwin':
-                program_path = Path('./Binaries/bin', program)
+                program_path = Path('./bin', program)
             case "win32":
-                program_path = Path('./Binaries/bin', program + '.exe')
+                program_path = Path('./bin', program + '.exe')
             case _:
                 raise OSError(f'Your platform ({platform}) is not supported, there are no blast executables '
                               f'for your Operating System.')
