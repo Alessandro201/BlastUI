@@ -7,6 +7,7 @@ import streamlit
 from PyInstaller.utils.hooks import collect_data_files
 
 APP_NAME = 'BlastUI'
+VERSION = '1.0.0'
 
 datas = []
 datas += collect_data_files('st_aggrid')
@@ -97,7 +98,7 @@ coll = COLLECT(exe,
                strip=False,
                upx=True,
                upx_exclude=[],
-               name=APP_NAME,
+               name=f"{APP_NAME}_{platform}_v{VERSION}",
                )
 
 if platform == 'win32':
