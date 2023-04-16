@@ -1,11 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
 from pathlib import Path
 from sys import platform
-import sys
+
+import altair
+import streamlit
+from PyInstaller.utils.hooks import collect_data_files
 
 APP_NAME = 'BlastUI'
-PYTHON_ENV_DIR = Path(sys.executable).parent
+VERSION = '1.0.0'
 
 datas = []
 datas += collect_data_files('st_aggrid')
@@ -15,10 +17,9 @@ datas += collect_data_files('bokeh')
 datas += collect_data_files('st_keyup')
 datas += [('./media', './media')]
 datas += [
-    (str(PYTHON_ENV_DIR / "Lib/site-packages/altair/vegalite/v4/schema/vega-lite-schema.json"),
-        "./altair/vegalite/v4/schema/"),
-    (str(PYTHON_ENV_DIR / "Lib/site-packages/streamlit/static"), "./streamlit/static"),
-    (str(PYTHON_ENV_DIR / "Lib/site-packages/streamlit/runtime"), "./streamlit/runtime"),
+    (Path(altair.__path__[0], "vegalite/v4/schema/vega-lite-schema.json"), "./altair/vegalite/v4/schema/"),
+    (Path(streamlit.__path__[0], "static"), "./streamlit/static"),
+    (Path(streamlit.__path__[0], "runtime"), "./streamlit/runtime"),
     ("./icon.png", "."),
 ]
 
@@ -97,7 +98,7 @@ coll = COLLECT(exe,
                strip=False,
                upx=True,
                upx_exclude=[],
-               name=APP_NAME,
+               name=f"{APP_NAME}_{platform}_v{VERSION}",
                )
 
 if platform == 'win32':

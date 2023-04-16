@@ -39,7 +39,7 @@ The data used to produce the images is not the same in all of them.
 git clone https://github.com/Alessandro201/BlastUI/
 conda create -n BlastUI python=3.10
 conda activate BlastUI
-pip install pandas streamlit streamlit-aggrid==0.3.3 streamlit-extras streamlit-option-menu ftputil
+pip install pandas streamlit streamlit-aggrid==0.3.3 streamlit-extras streamlit-option-menu 
 pip install --no-deps bokeh==2.4.3
 
 ```

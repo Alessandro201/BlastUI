@@ -80,10 +80,6 @@ def main():
     if st.button('Download blast', on_click=set_not_check_blast):
         pbar = st.progress(0)
 
-        download_folder = Path('./Binaries/')
-        shutil.rmtree(download_folder, ignore_errors=True)
-        download_folder.mkdir(parents=True, exist_ok=True)
-
         try:
             BlastDownloader(pbar=pbar)
         except ValueError as e:
