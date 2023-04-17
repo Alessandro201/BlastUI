@@ -4,7 +4,6 @@
 import sys
 from io import BytesIO
 from pathlib import Path
-import shutil
 
 # Needed to search for scripts in the parent folder
 sys.path.append(str(Path(__file__).parent))
@@ -14,7 +13,6 @@ from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_downloader import BlastDownloader
 from scripts import utils
-import ftputil.error
 
 
 def set_not_check_blast():
