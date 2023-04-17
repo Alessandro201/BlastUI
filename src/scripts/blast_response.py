@@ -374,39 +374,64 @@ class BlastResponse:
         rows = rows.sort_values(by=sort_by, inplace=False, ascending=[True, False])
         rows = rows[:max_hits]
 
+        # Width is +1 because query_from starts at 1 and not at 0, meaning that if query_from = 1 and query_to = 10
+        # the width is 10 but 10-1=9. For the same reason the x coordinate is +0.5 because it is the middle of the
+        # rectangle
         rows.insert(0, 'index', value=range(1, len(rows) + 1))
         rows.set_index('index', inplace=True)
-        rows.insert(0, 'x', value=(rows['query_to'] + rows['query_from']) // 2)
-        rows.insert(0, 'y', value=-rows.index)
-        rows.insert(0, 'width', value=(rows['query_to'] - rows['query_from']))
+        rows.insert(0, 'x', value=(rows['query_to'] - rows['query_from']) / 2 + 0.5)
+        rows.insert(0, 'y', value=len(rows) - rows.index)
+        rows.insert(0, 'width', value=rows['query_to'] - rows['query_from'] + 1)
         rows.insert(0, 'height', value=0.8)
-        rows.insert(0, 'color', value=rows['perc_identity'].apply(get_color))
+        rows.insert(0, 'fill_color', value=rows['perc_identity'].apply(get_color))
 
-        source = ColumnDataSource(rows)
+        hits_source = ColumnDataSource(rows)
 
-        height = 100 + len(rows) * 10 if height is None else height
+        query_source = pd.DataFrame.from_dict({
+            "x": [query_len / 2],
+            "y": [len(rows) + 1],
+            "width": [query_len],
+            "height": [1],
+            "fill_color": ["#58C7C7"],
+            "query_title": [query_title],
+            "query_len": [query_len],
+        })
 
-        plot = figure(width=1000, height=height, tools="save")
+        height = len(rows) * 10 if height is None else height
+
+        max_bar_width = max(rows['query_to'] - rows['query_from'])
+        plot = figure(width=1000,
+                      height=height,
+                      y_range=(-2, len(rows) + 5),
+                      x_range=(-(max_bar_width / 100 * 5), max_bar_width + (max_bar_width / 100 * 10)),
+                      tools="save")
 
         # Query rectangle
-        plot.rect(x=query_len // 2,
-                  y=1,
-                  width=query_len,
-                  height=1,
-                  fill_color="#58c7c7",
-                  line_color=None)
+        query_rect = plot.rect(x="x",
+                               y="y",
+                               width="width",
+                               height='height',
+                               fill_color="fill_color",
+                               fill_alpha=1,
+                               source=query_source,
+                               line_color=None)
 
         # Subject rectangles
         sbjct_rect = plot.rect(x="x",
                                y="y",
                                width="width",
                                height='height',
-                               fill_color="color",
+                               fill_color="fill_color",
                                fill_alpha=1,
-                               source=source,
+                               source=hits_source,
                                line_color=None)
 
-        tooltips = [
+        tooltips_query = [
+            ("Query", "@query_title"),
+            ("Query length", "@query_len"),
+        ]
+
+        tooltips_rect = [
             ("Strain", "@strain"),
             ("Node", "@node"),
             ("Perc Identity", "@perc_identity"),
@@ -416,21 +441,26 @@ class BlastResponse:
             ("Seq end", "@hit_to"),
             ("Query start", "@query_from"),
             ("Query end", "@query_to"),
+            ("Alignment length", "@width"),
         ]
 
-        sbjct_hover_tool = HoverTool(renderers=[sbjct_rect], tooltips=tooltips, point_policy="follow_mouse")
+        query_hover_tool = HoverTool(renderers=[query_rect], tooltips=tooltips_query, point_policy="follow_mouse")
+        plot.add_tools(query_hover_tool)
+
+        sbjct_hover_tool = HoverTool(renderers=[sbjct_rect], tooltips=tooltips_rect, point_policy="follow_mouse")
         plot.add_tools(sbjct_hover_tool)
 
-        rect0 = Rect(x="x", y="color", width=1, height=1, line_color="#054A29", fill_color="#054A29", fill_alpha=1)
-        rect1 = Rect(x="x", y="color", width=1, height=1, line_color="#37A5BE", fill_color="#37A5BE", fill_alpha=1)
-        rect2 = Rect(x="x", y="color", width=1, height=1, line_color="#F8E430", fill_color="#F8E430", fill_alpha=1)
-        rect3 = Rect(x="x", y="color", width=1, height=1, line_color="#FF9C1A", fill_color="#FF9C1A", fill_alpha=1)
-        rect4 = Rect(x="x", y="color", width=1, height=1, line_color="#FF0A0A", fill_color="#FF0A0A", fill_alpha=1)
-        rect0 = plot.add_glyph(source, rect0)
-        rect1 = plot.add_glyph(source, rect1)
-        rect2 = plot.add_glyph(source, rect2)
-        rect3 = plot.add_glyph(source, rect3)
-        rect4 = plot.add_glyph(source, rect4)
+        # Legend
+        rect0 = Rect(width=1, height=1, line_color="#054A29", fill_color="#054A29", fill_alpha=1)
+        rect1 = Rect(width=1, height=1, line_color="#37A5BE", fill_color="#37A5BE", fill_alpha=1)
+        rect2 = Rect(width=1, height=1, line_color="#F8E430", fill_color="#F8E430", fill_alpha=1)
+        rect3 = Rect(width=1, height=1, line_color="#FF9C1A", fill_color="#FF9C1A", fill_alpha=1)
+        rect4 = Rect(width=1, height=1, line_color="#FF0A0A", fill_color="#FF0A0A", fill_alpha=1)
+        rect0 = plot.add_glyph(rect0)
+        rect1 = plot.add_glyph(rect1)
+        rect2 = plot.add_glyph(rect2)
+        rect3 = plot.add_glyph(rect3)
+        rect4 = plot.add_glyph(rect4)
 
         legend = Legend(title="Percentage identity",
                         orientation='vertical',
