@@ -1,7 +1,6 @@
 import json as json
 import re
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -261,8 +260,8 @@ class BlastResponse:
                     'hit_to', 'evalue', 'bit_score', 'query_id', 'id']
     }
 
-    def __init__(self, json_file: Path):
-        self.json_file = json_file
+    def __init__(self, json_file: Path | str):
+        self.json_file: Path = Path(json_file)
         self.whole_df: pd.DataFrame = pd.DataFrame()
         self.metadata: dict = {}
         self.messages: list[str] = []
@@ -363,6 +362,9 @@ class BlastResponse:
             whole_df['perc_gaps'] = np.round(whole_df['gaps'] / whole_df['align_len'] * 100)
             whole_df['perc_mismatches'] = np.round(whole_df['mismatch'] /
                                                    (whole_df['align_len'] - whole_df['gaps']) * 100)
+
+            if metadata['program'] in ('tblastn', 'blastx', 'blastp', 'tblastx'):
+                whole_df['perc_positives'] = np.round(whole_df['positive'] / whole_df['align_len'] * 100)
 
         if not whole_df.empty:
             whole_df['index'] = whole_df['id'].copy()
