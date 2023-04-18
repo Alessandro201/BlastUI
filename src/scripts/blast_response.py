@@ -11,6 +11,237 @@ from bokeh.models import Legend, Rect
 from bokeh.plotting import figure
 
 
+class Alignment:
+    def __init__(self, row, program):
+        self.program = program
+
+        if self.program not in ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']:
+            raise ValueError(f"Invalid program: {self.program}")
+
+        self.query_title: str = row['query_title']
+        self.query_len: int = row['query_len']
+        self.strain: str = row['strain']
+        self.node: int = int(row['node'])
+
+        self.qseq: str = row['qseq']
+        self.midline: str = row['midline']
+        self.sseq: str = row['hseq']
+
+        self.align_len: int = row['align_len']
+        self.identity: int = row['identity']
+
+        self.gaps: int = row['gaps']
+        self.q_gap: int = row['q_gaps']
+        self.s_gap: int = row['s_gaps']
+        self.gap_opens: int = row['gap_opens']
+        self.mismatch: int = row['mismatch']
+
+        self.perc_identity: float = row['perc_identity']
+        self.perc_alignment: float = row['perc_alignment']
+        self.perc_gaps: float = row['perc_gaps']
+        self.perc_mismatches = row['perc_mismatches']
+
+        self.q_from: int = row['query_from']
+        self.q_to: int = row['query_to']
+        self.s_from: int = row['hit_from']
+        self.s_to: int = row['hit_to']
+
+        self.evalue: float = row['evalue']
+        self.bit_score: float = row['bit_score']
+        self.score: int = row['score']
+
+        if self.program in ('tblastn', 'blastx', 'blastp', 'tblastx'):
+            self.positive: int = row['positive']
+            self.perc_positives: float = round(self.positive / self.align_len * 100)
+
+        match self.program:
+            case 'blastn':
+                self.q_orient: str = row['query_strand']
+                self.s_orient: str = row['hit_strand']
+            case 'blastp':
+                self.q_orient: str = "forward"
+                self.s_orient: str = "forward"
+            case 'blastx':
+                self.q_frame = row['query_frame']
+                self.q_orient: str = "forward" if int(self.q_frame) > 0 else "reverse"
+                self.s_orient: str = "forward"
+            case 'tblastn':
+                self.s_frame = row['hit_frame']
+                self.q_orient: str = "forward"
+                self.s_orient: str = "forward" if int(self.s_frame) > 0 else "reverse"
+            case 'tblastx':
+                self.q_frame = row['query_frame']
+                self.s_frame = row['hit_frame']
+                self.q_orient: str = "forward" if int(self.q_frame) > 0 else "reverse"
+                self.s_orient: str = "forward" if int(self.s_frame) > 0 else "reverse"
+
+        # If the query or the sequence are translated, their positions in the alignment are multiplied by 3
+        match self.program:
+            case 'tblastn':
+                self.q_multiplier = 1
+                self.s_multiplier = 3
+
+            case 'blastx':
+                self.q_multiplier = 3
+                self.s_multiplier = 1
+
+            case 'tblastx':
+                self.s_multiplier = 3
+                self.q_multiplier = 3
+
+            case 'blastp' | 'blastn' | _:
+                self.s_multiplier = 1
+                self.q_multiplier = 1
+
+        # The number of padding spaces for the indexes in the alignment depends on the number of digits
+        self.pad = max(len(str(self.s_from)),
+                       len(str(self.q_from)),
+                       len(str(self.s_to)),
+                       len(str(self.q_to)))
+
+    def align(self):
+        match self.program:
+            case 'blastn':
+                return self._blastn_header() + self._alignment()
+
+            case 'blastp':
+                return self._blastp_header() + self._alignment()
+
+            case 'blastx':
+                return self._blastx_header() + self._alignment()
+
+            case 'tblastn':
+                return self._tblastn_header() + self._alignment()
+
+            case 'tblastx':
+                return self._tblastx_header() + self._alignment()
+
+    def _tblastn_header(self):
+        alignment_text = f">{self.query_title} \n" \
+                         f"Strain = {self.strain}, Node = {self.node}\n" \
+                         f"\tScore = {round(self.bit_score)} bits ({self.score}), " \
+                         f"E-value = {self.evalue :.3g} \n" \
+                         f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
+                         f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
+                         f"Gap opens = {self.gap_opens}\n" \
+                         f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
+                         f"\tFrame = {self.s_frame}\n\n"
+
+        return alignment_text
+
+    def _blastn_header(self):
+        alignment_text = f">{self.query_title} \n" \
+                         f"Strain = {self.strain}, Node = {self.node}\n" \
+                         f"\tScore = {round(self.bit_score)} bits ({self.score}), " \
+                         f"E-value = {self.evalue :.3g} \n" \
+                         f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
+                         f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
+                         f"Gap opens = {self.gap_opens}\n" \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
+                         f"\tStrand = {self.q_orient}/{self.s_orient}\n\n"
+
+        return alignment_text
+
+    def _blastx_header(self):
+        alignment_text = f">{self.query_title} \n" \
+                         f"Strain = {self.strain}, Node = {self.node}\n" \
+                         f"\tScore = {round(self.bit_score)} bits ({self.score}), " \
+                         f"E-value = {self.evalue :.3g} \n" \
+                         f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
+                         f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
+                         f"Gap opens = {self.gap_opens}\n" \
+                         f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
+                         f"\tQuery frame = {self.q_frame}\n\n"
+
+        return alignment_text
+
+    def _blastp_header(self):
+        alignment_text = f">{self.query_title} \n" \
+                         f"Strain = {self.strain}, Node = {self.node}\n" \
+                         f"\tScore = {round(self.bit_score)} bits ({self.score}), " \
+                         f"E-value = {self.evalue :.3g} \n" \
+                         f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
+                         f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
+                         f"Gap opens = {self.gap_opens}\n" \
+                         f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n\n"
+
+        return alignment_text
+
+    def _tblastx_header(self):
+        alignment_text = f">{self.query_title} \n" \
+                         f"Strain = {self.strain}, Node = {self.node}\n" \
+                         f"\tScore = {round(self.bit_score)} bits ({self.score}), " \
+                         f"E-value = {self.evalue :.3g} \n" \
+                         f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
+                         f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
+                         f"Gap opens = {self.gap_opens}\n" \
+                         f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
+                         f"\tFrame = {self.q_frame}/{self.s_frame}\n\n"
+
+        return alignment_text
+
+    def _alignment(self, alignment_text: str = ''):
+        # position in the sequences relative to the start of the alignment
+        index = 0
+
+        # Gaps in the current portion of the alignment
+        query_gaps = 0
+        seq_gaps = 0
+
+        # Gaps from the start of the alignment
+        prev_query_gaps = 0
+        prev_seq_gaps = 0
+
+        while index < len(self.sseq):
+            query_gaps += self.qseq[index:index + 60].count('-')
+            seq_gaps += self.sseq[index:index + 60].count('-')
+
+            # Query
+            if self.q_orient == 'forward':
+                # Forward strand or positive frame
+                q_start = self.q_from + (index - prev_query_gaps) * self.q_multiplier
+                q_end = self.q_from + (index + 60 - query_gaps) * self.q_multiplier - 1
+                q_end = min(q_end, self.q_to)
+
+            else:
+                # Reverse strand or negative frame
+                q_start = self.q_to - (index - prev_query_gaps) * self.q_multiplier
+                q_end = self.q_to - (index + 60 - query_gaps) * self.q_multiplier + 1
+                q_end = max(q_end, self.q_from)
+
+            # Subject
+            if self.s_orient == 'forward':
+                # Forward strand or positive frame
+                s_start = self.s_from + (index - prev_seq_gaps) * self.s_multiplier
+                s_end = self.s_from + (index + 60 - seq_gaps) * self.s_multiplier - 1
+                s_end = min(s_end, self.s_to)
+
+            else:
+                # Reverse strand or negative frame
+                s_start = self.s_to - (index - prev_seq_gaps) * self.s_multiplier
+                s_end = self.s_to - (index + 60 - seq_gaps) * self.s_multiplier + 1
+                s_end = max(s_end, self.s_from)
+
+            prev_query_gaps = query_gaps
+            prev_seq_gaps = seq_gaps
+
+            alignment_text += f"Query  {q_start :{self.pad}}  {self.qseq[index:index + 60]}  {q_end :{self.pad}}\n" \
+                              f"       {' ' * self.pad}  {self.midline[index:index + 60]} \n" \
+                              f"Sbjct  {s_start :{self.pad}}  {self.sseq[index:index + 60]}  {s_end :{self.pad}}\n\n"
+            index += 60
+
+        return alignment_text
+
+
 class BlastResponse:
     headers = {
         'tblastn': ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
@@ -157,164 +388,7 @@ class BlastResponse:
         if indexes is None:
             indexes = self.df['id']
 
-        return self.whole_df.iloc[indexes].apply(self._alignment, axis=1)
-
-    def _alignment(self, row) -> str:
-        query_title: str = row['query_title']
-        query_len: int = row['query_len']
-        strain: str = row['strain']
-        node: int = int(row['node'])
-
-        qseq: str = row['qseq']
-        midline: str = row['midline']
-        sseq: str = row['hseq']
-
-        align_len: int = row['align_len']
-        identity: int = row['identity']
-
-        gaps: int = row['gaps']
-        q_gap: int = qseq.count('-')
-        s_gap: int = gaps - q_gap
-        regex_matches = re.findall('-*', qseq + '|' + sseq)
-        gap_opens: int = len([match for match in regex_matches if match])
-        mismatch: int = align_len - identity - gaps
-
-        perc_identity: float = row['perc_identity']
-        perc_alignment: float = row['perc_alignment']
-        perc_gaps: float = row['perc_gaps']
-        perc_mismatches = row['perc_mismatches']
-
-        q_start: int = row['query_from']
-        q_end: int = row['query_to']
-        s_start: int = row['hit_from']
-        s_end: int = row['hit_to']
-
-        evalue: float = row['evalue']
-        bit_score: float = row['bit_score']
-        score: int = row['score']
-
-        if self.program in ('tblastn', 'blastx', 'blastp', 'tblastx'):
-            positive: int = row['positive']
-            perc_positives: float = round(positive / align_len * 100)
-
-        match self.program:
-            case 'blastn':
-                q_orient: str = row['query_strand']
-                s_orient: str = row['hit_strand']
-            case 'tblastn' | 'tblastx':
-                s_frame = row['hit_frame']
-            case 'blastx':
-                q_frame = row['query_frame']
-            case 'blastp' | _:
-                pass
-
-        match self.program:
-            case 'tblastn' | 'tblastx':
-                alignment_text = f">{query_title} \n" \
-                                 f"Strain = {strain}, Node = {node}\n" \
-                                 f"\tScore = {round(bit_score)} bits ({score}), " \
-                                 f"E-value = {evalue :.3g} \n" \
-                                 f"\tIdentities = {identity}/{align_len} ({perc_identity}%), " \
-                                 f"Query coverage = {align_len}/{query_len} ({perc_alignment}%), " \
-                                 f"Gap opens = {gap_opens}\n" \
-                                 f"\tPositives = {positive}/{align_len} ({perc_positives}%), " \
-                                 f"Mismatches = {mismatch}/{align_len} ({perc_mismatches}%), " \
-                                 f"Gaps = {gaps}/{align_len} ({perc_gaps}%)\n" \
-                                 f"\tFrame = {s_frame}\n\n"
-
-            case 'blastn':
-                alignment_text = f">{query_title} \n" \
-                                 f"Strain = {strain}, Node = {node}\n" \
-                                 f"\tScore = {round(bit_score)} bits ({score}), " \
-                                 f"E-value = {evalue :.3g} \n" \
-                                 f"\tIdentities = {identity}/{align_len} ({perc_identity}%), " \
-                                 f"Query coverage = {align_len}/{query_len} ({perc_alignment}%), " \
-                                 f"Gap opens = {gap_opens}\n" \
-                                 f"Mismatches = {mismatch}/{align_len} ({perc_mismatches}%), " \
-                                 f"Gaps = {gaps}/{align_len} ({perc_gaps}%)\n" \
-                                 f"\tStrand = {q_orient}/{s_orient}\n\n"
-
-            case 'blastp':
-                alignment_text = f">{query_title} \n" \
-                                 f"Strain = {strain}, Node = {node}\n" \
-                                 f"\tScore = {round(bit_score)} bits ({score}), " \
-                                 f"E-value = {evalue :.3g} \n" \
-                                 f"\tIdentities = {identity}/{align_len} ({perc_identity}%), " \
-                                 f"Query coverage = {align_len}/{query_len} ({perc_alignment}%), " \
-                                 f"Gap opens = {gap_opens}\n" \
-                                 f"\tPositives = {positive}/{align_len} ({perc_positives}%), " \
-                                 f"Mismatches = {mismatch}/{align_len} ({perc_mismatches}%), " \
-                                 f"Gaps = {gaps}/{align_len} ({perc_gaps}%)\n\n"
-
-            case 'blastx':
-                alignment_text = f">{query_title} \n" \
-                                 f"Strain = {strain}, Node = {node}\n" \
-                                 f"\tScore = {round(bit_score)} bits ({score}), " \
-                                 f"E-value = {evalue :.3g} \n" \
-                                 f"\tIdentities = {identity}/{align_len} ({perc_identity}%), " \
-                                 f"Query coverage = {align_len}/{query_len} ({perc_alignment}%), " \
-                                 f"Gap opens = {gap_opens}\n" \
-                                 f"\tPositives = {positive}/{align_len} ({perc_positives}%), " \
-                                 f"Mismatches = {mismatch}/{align_len} ({perc_mismatches}%), " \
-                                 f"Gaps = {gaps}/{align_len} ({perc_gaps}%)\n" \
-                                 f"\tQuery frame = {q_frame}\n\n"
-
-            case _:
-                alignment_text = f">{query_title} \n"
-
-        # If the query or the sequence are translated, their positions in the alignment are multiplied by 3
-        s_multiplier = 1
-        q_multiplier = 1
-        match self.program:
-            case 'tblastn':
-                s_multiplier = 3
-
-            case 'blastx':
-                q_multiplier = 3
-
-            case 'tblastx':
-                s_multiplier = 3
-                q_multiplier = 3
-
-            case 'blastp' | 'blastn' | _:
-                s_multiplier = 1
-                q_multiplier = 1
-
-        # The number of padding spaces for the indexes in the alignment depends on the number of digits
-        pad = max(len(str(s_start)),
-                  len(str(q_start)),
-                  len(str(s_end)),
-                  len(str(q_end)))
-
-        index = 0
-        query_gap = 0
-        seq_gap = 0
-        prev_query_gap = 0
-        prev_seq_gap = 0
-
-        while index < len(sseq):
-            query_gap += qseq[index:index + 60].count('-')
-            seq_gap += sseq[index:index + 60].count('-')
-
-            # Query
-            if q_start < q_end:
-                # Forward strand
-                q_start = q_start + (index - prev_query_gap) * q_multiplier
-                q_end = q_start + (index + 60 - query_gap) * q_multiplier - 1
-                q_end = min(q_end, q_end)
-
-            else:
-                # Reverse strand
-                q_start = q_end - (index - prev_query_gap) * q_multiplier
-                q_end = q_end - (index + 60 - query_gap) * q_multiplier + 1
-                q_end = max(q_end, q_start)
-
-            # Subject
-            if s_start < s_end:
-                # Forward strand
-                s_start = s_start + (index - prev_seq_gap) * s_multiplier
-                s_end = s_start + (index + 60 - seq_gap) * s_multiplier - 1
-                s_end = min(s_end, s_end)
+        return self.whole_df.iloc[indexes].apply(lambda row: Alignment(row, self.program).align(), axis=1)
 
     def plot_alignments_bokeh(self, indexes: pd.Series, height: int = None, max_hits: int = 100, sort_by=None):
         """
