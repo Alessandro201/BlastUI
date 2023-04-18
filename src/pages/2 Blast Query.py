@@ -7,8 +7,7 @@ sys.path.append(str(Path(__file__).parent))
 import shlex
 from io import StringIO, BytesIO
 from multiprocessing import cpu_count
-from datetime import datetime
-from subprocess import CalledProcessError
+from datetime import datetime, timedelta
 
 import streamlit as st
 from streamlit_option_menu import option_menu
@@ -16,10 +15,14 @@ from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_response import load_analysis
 from scripts import utils
+import subprocess
+
+import psutil
+
+from json import JSONDecodeError
 
 
-@st.cache_data(show_spinner=False)
-def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs) -> Path:
+def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs):
     """
     This function runs the blast command and returns the results as a dictionary.
     """
@@ -36,25 +39,42 @@ def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, 
         additional_params += f' -{key} {value}'
 
     today = datetime.today()
-    today_time = today.strftime("%Y%m%d_%H%M%S")
+
+    # Temporary patch to avoid overwriting files
+    query_file = f'./Analysis/{today:%Y%m%d_%H%M%S}_query.fasta'
+    while Path(query_file).exists():
+        time_change = timedelta(seconds=1)
+        today = (today + time_change)
+        query_file = f'./Analysis/{today:%Y%m%d_%H%M%S}_query.fasta'
 
     # Write query to file to be used by blast. If it doesn't have a header add it
-    query_file = f'./Analysis/{today_time}_query.fasta'
     query = query.strip()
     if query[0] != '>':
         query = '>Query_1\n' + query
     Path(query_file).parent.mkdir(parents=True, exist_ok=True)
     Path(query_file).write_text(query)
 
-    out_file = Path(f'./Analysis/{today_time}_results.json')
+    out_file = Path(f'./Analysis/{today:%Y%m%d_%H%M%S}_results.json')
 
     blast_exec = st.session_state['blast_exec']
 
     cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt 15 '
                       f'-out "{out_file}" -num_threads {threads} {additional_params}')
 
-    utils.run_command(cmd)
-    return out_file
+    return out_file, cmd
+
+
+def kill_process_group(procid):
+    parent = psutil.Process(procid)
+
+    for child in parent.children(recursive=True):
+        child.terminate()
+        if psutil.pid_exists(child.pid):
+            child.kill()
+
+    parent.terminate()
+    if psutil.pid_exists(parent.pid):
+        parent.kill()
 
 
 def choose_database(container=None):
@@ -500,8 +520,10 @@ def main():
     exp = st.expander('⚙️ Advanced options', expanded=False)
     set_advanced_options(exp)
 
+    start_col, end_col, _ = st.columns([1, 1, 5])
+
     ###### BLAST ######
-    if st.button('Blast query'):
+    if start_col.button('Blast query', disabled=bool(st.session_state.get('process_pid', False))):
         st.session_state.switch_to_result_page = False
 
         if 'db' not in st.session_state:
@@ -512,37 +534,95 @@ def main():
             st.warning('Please enter a query!')
             st.stop()
 
-        try:
-            with st.spinner(f"Running {st.session_state.blast_mode}..."):
-                st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
+        st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
 
-                blast_output_file = blast(query=st.session_state['query'],
-                                          blast_mode=st.session_state['blast_mode'],
-                                          db=st.session_state['db'],
-                                          threads=st.session_state['threads'],
-                                          **st.session_state['advanced_options'])
+        blast_output_file, command = prepare_for_blast_command(query=st.session_state['query'],
+                                                               blast_mode=st.session_state['blast_mode'],
+                                                               db=st.session_state['db'],
+                                                               threads=st.session_state['threads'],
+                                                               **st.session_state['advanced_options'])
 
-                st.session_state['blast_output_file'] = blast_output_file
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print('Process started with pid: ', p.pid)
+        st.session_state['process_pid'] = p.pid
+        st.session_state['process'] = p
+        st.session_state['blast_output_file'] = blast_output_file
 
-        except CalledProcessError as e:
-            stderr = e.stderr
-            st.error(f'Error running blast: {stderr}')
+        # rerun to update button states
+        st.experimental_rerun()
 
-            if 'BLAST Database error: No alias or index file found for nucleotide database' in stderr:
-                st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
-                        f'which requires a nucleotide database, but ***{Path(st.session_state["db"]).parent.name}*** '
-                        f'is a protein one.')
-            elif 'BLAST Database error: No alias or index file found for protein database' in stderr:
-                st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
-                        f'which requires a protein database, but ***{Path(st.session_state["db"]).parent.name}*** '
-                        f'is a nucleotide one.')
+    if end_col.button('Stop process', disabled=not st.session_state.get('process_pid', False)):
+        process_pid = st.session_state.get('process_pid', False)
+        if not psutil.pid_exists(process_pid):
+            st.info('Process already stopped')
+            st.experimental_rerun()
 
-            st.stop()
+        proc = st.session_state['process']
+
+        # Terminating or killing the process WILL FAIL leaving it running in the background, but after calling
+        # communicate() the process will be terminated and the return code will be set.
+        #
+        # Following the subprocess.Popen documentation:
+        #
+        # "...in order to cleanup properly a well-behaved application should kill the child process
+        # and finish communication..."
+        #
+        # proc = subprocess.Popen(...)
+        # try:
+        #     outs, errs = proc.communicate(timeout=15)
+        # except TimeoutExpired:
+        #     proc.kill()
+        #     outs, errs = proc.communicate()
+        kill_process_group(procid=process_pid)
+        proc.communicate()
+
+        del st.session_state['process_pid']
+        st.experimental_rerun()
+
+    if psutil.pid_exists(st.session_state.get('process_pid', -1)):
+        with st.spinner(f"Running {st.session_state.blast_mode}..."):
+            try:
+                p = st.session_state['process']
+
+                # communicate() will wait until the process terminates
+                out, err = p.communicate()
+                if p.returncode != 0:
+                    raise subprocess.CalledProcessError(p.returncode, p.args, output=out, stderr=err)
+
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr
+                st.error(f'Error running blast: {stderr}')
+
+                if 'BLAST Database error: No alias or index file found for nucleotide database' in stderr:
+                    st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
+                            f'which requires a nucleotide database, but ***{Path(st.session_state["db"]).parent.name}*** '
+                            f'is a protein one.')
+                elif 'BLAST Database error: No alias or index file found for protein database' in stderr:
+                    st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
+                            f'which requires a protein database, but ***{Path(st.session_state["db"]).parent.name}*** '
+                            f'is a nucleotide one.')
+                elif "there's a line that doesn't look like plausible data, but it's not marked as defline or comment." in stderr:
+                    st.info(f"Error parsing blast results. It's likely that there is a wrong character "
+                            f"in the query that BLAST does not know how to interpret. "
+                            f"Please check the query and try again.")
+                st.stop()
+
+        del st.session_state['process_pid']
 
         with st.spinner('Parsing results...'):
-            st.session_state['blast_response'] = load_analysis(blast_output_file)
+            blast_output_file = st.session_state['blast_output_file']
+            try:
+                st.session_state['blast_response'] = load_analysis(blast_output_file)
+            except JSONDecodeError:
+                st.error(f"Error parsing blast results. It's likely that there is a wrong character in the query that "
+                         f"BLAST does not know how to interpret. Please check the query and try again.")
+                st.stop()
 
         st.session_state['switch_to_result_page'] = True
+
+        # By rerunning the app, we can re-enable the blast query button, disable the stop process button
+        # and then switch to the results page
+        st.experimental_rerun()
 
     ##### SWITCH PAGE #####
     if st.session_state.get('switch_to_result_page', False):
@@ -552,12 +632,17 @@ def main():
             st.session_state.switch_to_result_page = False
             switch_page('Results')
 
-        for message in blast_response.messages:
-            st.warning(message)
-
         if st.button('Go to results'):
             st.session_state.switch_to_result_page = False
             switch_page('Results')
+
+        if blast_response.messages:
+            st.warning('There were some warnings while running BLAST. Please check them below and try again.')
+
+        for message in blast_response.messages:
+            st.info(message)
+
+
 
 
 if __name__ == "__main__":
