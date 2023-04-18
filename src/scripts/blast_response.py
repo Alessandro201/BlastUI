@@ -316,23 +316,7 @@ class BlastResponse:
                 s_end = s_start + (index + 60 - seq_gap) * s_multiplier - 1
                 s_end = min(s_end, s_end)
 
-            else:
-                # Reverse strand
-                s_start = s_start - (index - prev_seq_gap) * s_multiplier
-                s_end = s_start - (index + 60 - seq_gap) * s_multiplier + 1
-                s_end = max(s_end, s_end)
-
-            prev_query_gap = query_gap
-            prev_seq_gap = seq_gap
-
-            alignment_text += f"Query  {q_start :{pad}}  {qseq[index:index + 60]}  {q_end :{pad}}\n" \
-                              f"       {' ' * pad}  {midline[index:index + 60]} \n" \
-                              f"Sbjct  {s_start :{pad}}  {sseq[index:index + 60]}  {s_end :{pad}}\n\n"
-            index += 60
-
-        return alignment_text
-
-    def plot_alignments_bokeh(self, indexes: Iterable[int], height: int = None, max_hits: int = 100, sort_by=None):
+    def plot_alignments_bokeh(self, indexes: pd.Series, height: int = None, max_hits: int = 100, sort_by=None):
         """
         Plot the alignments against the query
 
@@ -342,10 +326,6 @@ class BlastResponse:
         :param sort_by:
         :return:
         """
-
-        # I don't care about the index, I just want the values
-        if isinstance(indexes, pd.Series):
-            indexes.reset_index(drop=True, inplace=True)
 
         if sort_by is None:
             sort_by = ['evalue', 'perc_alignment']
@@ -364,21 +344,23 @@ class BlastResponse:
                 return '#FF0A0A'  # red
 
         # All the indexes have the same query, thus the same query len
-        query_title = self.df.iloc[indexes[0]].query_title
+        query_title = self.df.iloc[indexes.iloc[0]].query_title
         for query in self.metadata['queries']:
             if query['query_title'] == query_title:
                 query_len = query['query_len']
                 break
 
         rows = self.df.iloc[indexes]
+        rows.insert(0, 'table_row_index', value=indexes.index + 1)
+
         rows = rows.sort_values(by=sort_by, inplace=False, ascending=[True, False])
         rows = rows[:max_hits]
 
         # Width is +1 because query_from starts at 1 and not at 0, meaning that if query_from = 1 and query_to = 10
         # the width is 10 but 10-1=9. For the same reason the x coordinate is +0.5 because it is the middle of the
         # rectangle
-        rows.insert(0, 'index', value=range(1, len(rows) + 1))
-        rows.set_index('index', inplace=True)
+        rows.insert(0, 'graph_index', value=range(1, len(rows) + 1))
+        rows.set_index('graph_index', inplace=True)
         rows.insert(0, 'x', value=(rows['query_to'] - rows['query_from']) / 2 + 0.5)
         rows.insert(0, 'y', value=len(rows) - rows.index)
         rows.insert(0, 'width', value=rows['query_to'] - rows['query_from'] + 1)
@@ -398,12 +380,12 @@ class BlastResponse:
         })
 
         height = len(rows) * 10 if height is None else height
+        height = max(height, 200)
 
-        max_bar_width = max(rows['query_to'] - rows['query_from'])
         plot = figure(width=1000,
                       height=height,
                       y_range=(-2, len(rows) + 5),
-                      x_range=(-(max_bar_width / 100 * 5), max_bar_width + (max_bar_width / 100 * 10)),
+                      x_range=(-(query_len / 100 * 5), query_len + (query_len / 100 * 10)),
                       tools="save")
 
         # Query rectangle
@@ -434,6 +416,7 @@ class BlastResponse:
         tooltips_rect = [
             ("Strain", "@strain"),
             ("Node", "@node"),
+            ("Row Index", "@table_row_index"),
             ("Perc Identity", "@perc_identity"),
             ("Perc Alignment", "@perc_alignment"),
             ("Evalue", "@evalue"),
