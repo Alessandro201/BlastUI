@@ -333,15 +333,18 @@ def choose_analysis_to_load() -> BlastResponse:
     analysis_outputs = [file for file in analysis_outputs if '_query.fasta' not in str(file)]
     analysis_outputs = [file.name for file in analysis_outputs]
 
-    # add '### LAST ###' as prefix to the first element
-    analysis_outputs[0] = '### LAST ### ' + analysis_outputs[0]
+    # If there is a blast_response in session_state, preselect the corresponding analysis
+    if 'blast_response' in st.session_state:
+        blast_response = st.session_state['blast_response']
+        json_loaded = blast_response.json_file.name
+        preselected_index = analysis_outputs.index(json_loaded)
+    else:
+        preselected_index = 0
 
-    json_to_load = st.selectbox('Select which analysis to load. Default: last', options=analysis_outputs, index=0,
+    json_to_load = st.selectbox('Select which analysis to load. Default: last',
+                                options=analysis_outputs,
+                                index=preselected_index,
                                 format_func=lambda x: os.path.splitext(x)[0])
-
-    # Remove the prefix
-    if '### LAST ### ' in json_to_load:
-        json_to_load = json_to_load.replace('### LAST ### ', '')
 
     json_to_load = Path('./Analysis/') / json_to_load
 
@@ -376,12 +379,12 @@ def main():
             switch_page('Home')
         st.stop()
 
+    # Load analysis and show selectbox to choose it. By default, choose the analysis last loaded
     blast_response = choose_analysis_to_load()
-    st.session_state.blast_response = blast_response
+    st.session_state['blast_response'] = blast_response
 
-    ###### Blast results ######
     if blast_response.df.empty:
-        st.warning('No results found!')
+        st.warning('No results found by BLAST!')
         st.stop()
 
     df = blast_response.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
