@@ -141,7 +141,7 @@ def html_download(object_to_download: Union[str, bytes], download_filename):
         b64 = base64.b64encode(object_to_download).decode()
 
     dl_link = f"""
-        <script src="http://code.jquery.com/jquery-3.2.1.min.js"></script>
+        <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
         <script>
         $('<a href="data:text/{ext};base64,{b64}" download="{download_filename}">')[0].click()
         </script>
@@ -449,7 +449,7 @@ def main():
         aggrid_options: dict = load_aggrid_options(df)
         grid = AgGrid(df, **aggrid_options)
 
-        grid_df = grid['data']
+        grid_df: pd.DataFrame = grid['data']
         selected = grid['selected_rows']
 
         st.session_state['grid_df'] = grid_df
@@ -470,7 +470,7 @@ def main():
                 st.subheader(f"Showing alignments for {len(row_indexes)} selected rows")
 
             whole_df = blast_response.whole_df
-            for row, index, alignment in zip(row_indexes, indexes, alignments):
+            for row, selected_json_index, alignment in zip(row_indexes, indexes, alignments):
                 num_col, alignments_col = st.columns([1, 10])
 
                 try:
@@ -478,7 +478,7 @@ def main():
                 except TypeError:
                     num_col.subheader(f"#)")
 
-                if whole_df.iloc[[index]].hseq.str.len().max() > 1000:
+                if whole_df.iloc[[selected_json_index]].hseq.str.len().max() > 1000:
                     alignments_col.info("The alignment is too long to be displayed. If you want to see even "
                                         "long alignments please download them all by clicking the button above "
                                         "the table.")
@@ -549,8 +549,6 @@ def main():
 
         st.bokeh_chart(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
                        use_container_width=True)
-
-        # st.pyplot(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits))
 
     with fragile(tab_analysis):
         if grid_df.empty:
