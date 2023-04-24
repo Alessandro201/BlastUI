@@ -36,23 +36,23 @@ def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int
 
         additional_params += f' -{key} {value}'
 
+    # Find a file name for query and result that doesn't exist
     today = datetime.today()
-
-    # Temporary patch to avoid overwriting files
     query_file = f'./Analysis/{today:%Y%m%d_%H%M%S}_query.fasta'
     while Path(query_file).exists():
-        time_change = timedelta(seconds=1)
-        today = (today + time_change)
+        today = (today + timedelta(seconds=1))
         query_file = f'./Analysis/{today:%Y%m%d_%H%M%S}_query.fasta'
+
+    out_file = Path(f'./Analysis/{today:%Y%m%d_%H%M%S}_results.tsv')
 
     # Write query to file to be used by blast. If it doesn't have a header add it
     query = query.strip()
     if query[0] != '>':
         query = '>Query_1\n' + query
+
+    # Write query to file
     Path(query_file).parent.mkdir(parents=True, exist_ok=True)
     Path(query_file).write_text(query)
-
-    out_file = Path(f'./Analysis/{today:%Y%m%d_%H%M%S}_results.json')
 
     blast_exec = st.session_state['blast_exec']
     outfmt = "7 qaccver saccver nident pident qlen length qcovhsp gaps gapopen " \
@@ -66,16 +66,21 @@ def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int
 
 
 def kill_process_group(procid):
+    """
+    Terminate a process and all its children, if some fails it kills them.
+    """
+
+    print(f'Killing process {procid} and its children')
     parent = psutil.Process(procid)
 
-    for child in parent.children(recursive=True):
+    childrens = parent.children(recursive=True)
+    for child in childrens:
         child.terminate()
-        if psutil.pid_exists(child.pid):
-            child.kill()
-
     parent.terminate()
-    if psutil.pid_exists(parent.pid):
-        parent.kill()
+
+    gone, alive = psutil.wait_procs(childrens + [parent], timeout=3)
+    for proc in alive:
+        proc.kill()
 
 
 def choose_database(container=None):
@@ -564,7 +569,18 @@ def main():
 
     start_col, end_col, _ = st.columns([1, 1, 5])
 
+    ###### RUN BLAST COMMAND IF PRESENT ######
+    if 'command_to_run' in st.session_state:
+        command = st.session_state['command_to_run']
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        print('Process started with pid: ', p.pid)
+        st.session_state['process_pid'] = p.pid
+        st.session_state['process'] = p
+
+        del st.session_state['command_to_run']
+
     ###### BLAST ######
+    # Button disabled during blast process
     if start_col.button('Blast query', disabled=bool(st.session_state.get('process_pid', False))):
         st.session_state.switch_to_result_page = False
 
@@ -589,52 +605,70 @@ def main():
                                                                threads=st.session_state['threads'],
                                                                **st.session_state['advanced_options'])
 
-        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print('Process started with pid: ', p.pid)
-        st.session_state['process_pid'] = p.pid
-        st.session_state['process'] = p
+        # rerun to update button states and execute command
+        st.session_state['command_to_run'] = command
         st.session_state['blast_output_file'] = blast_output_file
-
-        # rerun to update button states
         st.experimental_rerun()
 
-    if end_col.button('Stop process', disabled=not st.session_state.get('process_pid', False)):
-        process_pid = st.session_state.get('process_pid', False)
-        if not psutil.pid_exists(process_pid):
-            st.info('Process already stopped')
+    # Button enabled during blast process
+    if end_col.button('Stop process', disabled=not bool(st.session_state.get('process_pid', False))):
+        process_pid = st.session_state.get('process_pid', None)
+        proc = st.session_state.get('process', None)
+
+        if not process_pid or not proc:
             st.experimental_rerun()
 
-        proc = st.session_state['process']
+        if proc.poll():
+            return_code = proc.returncode
+            print(f'Process already stopped with return code: {return_code}')
+            st.info('Process already stopped')
 
-        # Terminating or killing the process WILL FAIL leaving it running in the background, but after calling
-        # communicate() the process will be terminated and the return code will be set.
-        #
-        # Following the subprocess.Popen documentation:
-        #
-        # "...in order to cleanup properly a well-behaved application should kill the child process
-        # and finish communication..."
-        #
-        # proc = subprocess.Popen(...)
-        # try:
-        #     outs, errs = proc.communicate(timeout=15)
-        # except TimeoutExpired:
-        #     proc.kill()
-        #     outs, errs = proc.communicate()
-        kill_process_group(procid=process_pid)
-        proc.communicate()
+        else:
+            proc = st.session_state['process']
+
+            # Terminating or killing the process WILL FAIL leaving it running in the background, but after calling
+            # communicate() the process will be terminated and the return code will be set.
+            #
+            # Following the subprocess.Popen documentation:
+            #
+            # "...in order to cleanup properly a well-behaved application should kill the child process
+            # and finish communication..."
+            #
+            # proc = subprocess.Popen(...)
+            # try:
+            #     outs, errs = proc.communicate(timeout=15)
+            # except TimeoutExpired:
+            #     proc.kill()
+            #     outs, errs = proc.communicate()
+            kill_process_group(procid=process_pid)
+            proc.communicate()
 
         del st.session_state['process_pid']
+        del st.session_state['process']
         st.experimental_rerun()
 
-    if psutil.pid_exists(st.session_state.get('process_pid', -1)):
+    # If the process is running, show the spinner and wait for the process to finish
+    process_pid = st.session_state.get('process_pid', None)
+    if process_pid and psutil.pid_exists(process_pid):
+
         with st.spinner(f"Running {st.session_state.blast_mode}..."):
             try:
-                p = st.session_state['process']
-
                 # communicate() will wait until the process terminates
+                p = st.session_state['process']
                 out, err = p.communicate()
                 if p.returncode != 0:
                     raise subprocess.CalledProcessError(p.returncode, p.args, output=out, stderr=err)
+
+                if err:
+                    lines = err.splitlines()
+                    if any('FASTA-Reader: Ignoring invalid residues at position(s):' in line for line in lines):
+                        st.warning(f'The analysis finished but some residues are invalid. '
+                                   f'Please check that you have selected the correct BLAST program: ')
+                    else:
+                        st.warning(f'The analysis finished but there were some errors: ')
+
+                    st.write(f"Showing last {20 if len(lines) > 20 else len(lines)} lines of error output:")
+                    st.code('\n'.join(lines[-20:]))
 
             except subprocess.CalledProcessError as e:
                 stderr = e.stderr
@@ -652,9 +686,13 @@ def main():
                     st.info(f"Error parsing blast results. It's likely that there is a wrong character "
                             f"in the query that BLAST does not know how to interpret. "
                             f"Please check the query and try again.")
+                else:
+                    raise e
+
                 st.stop()
 
         del st.session_state['process_pid']
+        del st.session_state['process']
 
         with st.spinner('Parsing results...'):
             blast_output_file = st.session_state['blast_output_file']
@@ -676,7 +714,16 @@ def main():
     if st.session_state.get('switch_to_result_page', False):
         blast_parser = st.session_state.blast_parser
 
-        if not blast_response.messages:
+        # Check whether any query did not produce any hits
+        warnings = list()
+        for query in blast_parser.queries:
+            print(query)
+            query_title = query['query_title']
+            hits = query['hits']
+            if hits == 0:
+                warnings.append(f'No hits found for query: *{query_title}*')
+
+        if not warnings:
             st.session_state.switch_to_result_page = False
             switch_page('Results')
 
@@ -684,13 +731,8 @@ def main():
             st.session_state.switch_to_result_page = False
             switch_page('Results')
 
-        if blast_response.messages:
-            st.warning('There were some warnings while running BLAST. Please check them below and try again.')
-
-        for message in blast_response.messages:
+        for message in warnings:
             st.info(message)
-
-
 
 
 if __name__ == "__main__":
