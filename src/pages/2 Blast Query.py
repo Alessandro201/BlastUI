@@ -13,13 +13,11 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_response import load_analysis
+from scripts.blast_parser import load_analysis, EmptyCSVError
 from scripts import utils
 import subprocess
 
 import psutil
-
-from json import JSONDecodeError
 
 
 def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs):
@@ -57,8 +55,11 @@ def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int
     out_file = Path(f'./Analysis/{today:%Y%m%d_%H%M%S}_results.json')
 
     blast_exec = st.session_state['blast_exec']
+    outfmt = "7 qaccver saccver nident pident qlen length qcovhsp gaps gapopen " \
+             "mismatch positive ppos qstart qend sstart send qframe sframe score " \
+             "evalue bitscore qseq sseq"
 
-    cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt 15 '
+    cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt "{outfmt}" '
                       f'-out "{out_file}" -num_threads {threads} {additional_params}')
 
     return out_file, cmd
@@ -100,6 +101,21 @@ def choose_database(container=None):
     return None
 
 
+def write_metadata(file: Path | str, metadata: dict):
+    """
+    This function writes the metadata to the output file of BLAST to preserve the params of the search.
+    :param file: the file to write the metadata to
+    :param metadata: the metadata to be written
+    """
+
+    file = Path(file)
+    with open(file, 'a') as f:
+        f.write("# [PARAMS]\n")
+        for key, value in metadata.items():
+            f.write(f'# {key}:{value}\n')
+        f.write("# [END PARAMS]\n")
+
+
 def read_query(uploaded_files: list[BytesIO]) -> str:
     """
     This function reads the query from the uploaded files and returns it as a string.
@@ -116,6 +132,31 @@ def read_query(uploaded_files: list[BytesIO]) -> str:
         queries.append(query)
 
     return '\n'.join(queries)
+
+
+def duplicated_headers(query: str) -> list | None:
+    """
+    This function checks if the query has duplicated headers.
+
+    :param query: the query to be checked
+    :return: The duplicated headers, None otherwise
+    """
+
+    headers = set()
+    dup_headers = list()
+
+    for line in query.strip().splitlines():
+        # Blank lines
+        if len(line) == 0:
+            continue
+
+        if line[0] == '>':
+            if line in headers:
+                dup_headers.append(line)
+            else:
+                headers.add(line)
+
+    return dup_headers if dup_headers else None
 
 
 def set_advanced_options(container=None, blast_mode=None):
@@ -358,7 +399,7 @@ def set_advanced_options(container=None, blast_mode=None):
 
             options['matrix'] = st.selectbox('Matrix: ', options=matrixes, index=matrixes.index('BLOSUM62'))
 
-            if not options['matrix'] in ('BLOSUM45', 'BLOSUM50', 'PAM30', 'PAM70', 'PAM250'):
+            if options['matrix'] not in ('BLOSUM45', 'BLOSUM50', 'PAM30', 'PAM70', 'PAM250'):
                 gap_penalty = ['Existence: 11 Extension: 2', 'Existence: 10 Extension: 2', 'Existence: 9 Extension: 2',
                                'Existence: 8 Extension: 2', 'Existence: 7 Extension: 2', 'Existence: 6 Extension: 2',
                                'Existence: 13 Extension: 1', 'Existence: 12 Extension: 1', 'Existence: 11 Extension: 1',
@@ -502,7 +543,8 @@ def main():
     query = st.text_area('Insert the queries: ', placeholder="Query...", height=200).strip()
     st.session_state.query = query
 
-    uploaded_files = st.file_uploader("Alternatively upload queries in fasta format", type=["fasta", "faa"],
+    uploaded_files = st.file_uploader("Alternatively upload queries in fasta format",
+                                      type=["fasta", "faa"],
                                       accept_multiple_files=True)
     if uploaded_files:
         if st.session_state.query:
@@ -532,6 +574,11 @@ def main():
 
         if len(st.session_state.get('query', '')) == 0:
             st.warning('Please enter a query!')
+            st.stop()
+
+        if headers := duplicated_headers(st.session_state['query']):
+            for h in headers:
+                st.warning(f'The following headers is present more than one time: {h}')
             st.stop()
 
         st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
@@ -611,11 +658,12 @@ def main():
 
         with st.spinner('Parsing results...'):
             blast_output_file = st.session_state['blast_output_file']
+            write_metadata(blast_output_file, st.session_state['advanced_options'])
+
             try:
-                st.session_state['blast_response'] = load_analysis(blast_output_file)
-            except JSONDecodeError:
-                st.error(f"Error parsing blast results. It's likely that there is a wrong character in the query that "
-                         f"BLAST does not know how to interpret. Please check the query and try again.")
+                st.session_state['blast_parser'] = load_analysis(blast_output_file)
+            except EmptyCSVError:
+                st.error(f"The analysis did not produce any result. No matches were found.")
                 st.stop()
 
         st.session_state['switch_to_result_page'] = True
@@ -626,7 +674,7 @@ def main():
 
     ##### SWITCH PAGE #####
     if st.session_state.get('switch_to_result_page', False):
-        blast_response = st.session_state.blast_response
+        blast_parser = st.session_state.blast_parser
 
         if not blast_response.messages:
             st.session_state.switch_to_result_page = False
