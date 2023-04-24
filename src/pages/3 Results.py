@@ -302,7 +302,7 @@ def sidebar_options():
         del st.session_state['analysis_folder_cleared']
 
 
-def choose_analysis_to_load() -> BlastParser:
+def choose_analysis_to_load() -> BlastParser | None:
     Path('./Analysis/').mkdir(parents=True, exist_ok=True)
     analysis_outputs = Path('./Analysis/').glob('*.tsv')
 
@@ -325,16 +325,18 @@ def choose_analysis_to_load() -> BlastParser:
     else:
         preselected_index = 0
 
-    json_to_load = st.selectbox('Select which analysis to load. Default: last',
+    file_to_load = st.selectbox('Select which analysis to load. Default: last',
                                 options=analysis_outputs,
                                 index=preselected_index,
                                 format_func=lambda x: os.path.splitext(x)[0])
 
-    json_to_load = Path('./Analysis/') / json_to_load
+    if not file_to_load:
+        return None
 
     try:
         with st.spinner('Loading analysis...'):
-            blast_parser = load_analysis(json_to_load)
+            file_to_load = Path('./Analysis/') / file_to_load
+            blast_parser = load_analysis(file_to_load)
 
     except json.JSONDecodeError:
         st.error('The selected file is not a valid JSON file! Probably the BLAST search did not finish correctly.')
@@ -530,14 +532,17 @@ def main():
 
     # Load analysis and show selectbox to choose it. By default, choose the analysis last loaded
     blast_parser = choose_analysis_to_load()
-    st.session_state['blast_parser'] = blast_parser
+    if not blast_parser:
+        st.warning('No analysis done yet. Run BLAST first!')
+        st.stop()
 
     if blast_parser.df.empty:
         st.warning('No results found by BLAST!')
         st.stop()
 
+    st.session_state['blast_parser'] = blast_parser
     st.session_state['df'] = blast_parser.filtered_df(st.session_state['perc_identity'],
-                                                        st.session_state['perc_alignment'])
+                                                      st.session_state['perc_alignment'])
 
     tabs = ['Table', 'Alignments', 'Graphic summary', 'About this analysis']
     col_table, col_alignments, col_graphic_summary, col_about = st.columns([1, 1, 1, 1])

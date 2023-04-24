@@ -8,7 +8,6 @@ import pandas as pd
 import os
 import base64
 import json
-from typing import Union
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -16,25 +15,11 @@ from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSiz
 from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_parser import load_analysis, BlastParser
+from scripts.blast_parser import load_analysis, BlastParser, EmptyCSVError
 from scripts import utils
 from scripts.analysis import find_strain_with_multiple_hits, find_alignments_with_stop_codons
 
 from io import BytesIO
-
-
-def extract_indexes(selected: list):
-    indexes = []
-    for row in selected:
-        nodeRowIndex = row['_selectedRowNodeInfo']['nodeRowIndex']
-        match_index = row['id']
-        indexes.append((nodeRowIndex, match_index))
-    try:
-        indexes = sorted(indexes, key=lambda x: x[0])
-    except TypeError:
-        # The grid was grouped by a column, so the nodeRowIndex is None, and you can't sort with None
-        pass
-    return zip(*indexes)
 
 
 def download_table_xlsx():
@@ -104,7 +89,7 @@ def download_all_alignments():
     components.html(html_download(alignments, filename), height=None, width=None)
 
 
-def html_download(object_to_download: Union[str, bytes], download_filename):
+def html_download(object_to_download: str | bytes, download_filename):
     """
     Generates a link to download the given object_to_download.
     Params:
@@ -302,7 +287,7 @@ def sidebar_options():
         del st.session_state['analysis_folder_cleared']
 
 
-def choose_analysis_to_load() -> BlastParser:
+def choose_analysis_to_load() -> BlastParser | None:
     Path('./Analysis/').mkdir(parents=True, exist_ok=True)
     analysis_outputs = Path('./Analysis/').glob('*.tsv')
 
@@ -325,19 +310,21 @@ def choose_analysis_to_load() -> BlastParser:
     else:
         preselected_index = 0
 
-    json_to_load = st.selectbox('Select which analysis to load. Default: last',
+    file_to_load = st.selectbox('Select which analysis to load. Default: last',
                                 options=analysis_outputs,
                                 index=preselected_index,
                                 format_func=lambda x: os.path.splitext(x)[0])
 
-    json_to_load = Path('./Analysis/') / json_to_load
+    if not file_to_load:
+        return None
 
     try:
         with st.spinner('Loading analysis...'):
-            blast_parser = load_analysis(json_to_load)
+            file_to_load = Path('./Analysis/') / file_to_load
+            blast_parser = load_analysis(file_to_load)
 
-    except json.JSONDecodeError:
-        st.error('The selected file is not a valid JSON file! Probably the BLAST search did not finish correctly.')
+    except EmptyCSVError:
+        st.error('The selected file is empty! Probably the BLAST search did not finish correctly.')
         st.stop()
 
     return blast_parser
@@ -354,12 +341,15 @@ def main():
 
     # Load analysis and show selectbox to choose it. By default, choose the analysis last loaded
     blast_parser = choose_analysis_to_load()
-    st.session_state['blast_parser'] = blast_parser
-
-    if blast_parser.df.empty:
-        st.warning('No results found by BLAST to analyze. Run first a blast search!')
+    if not blast_parser:
+        st.warning('No analysis done yet. Run BLAST first!')
         st.stop()
 
+    if blast_parser.df.empty:
+        st.warning('No results found by BLAST!')
+        st.stop()
+
+    st.session_state['blast_parser'] = blast_parser
     df = blast_parser.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
 
     analysis_choices = ['Find strain with multiple hits for the same query',
