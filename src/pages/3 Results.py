@@ -17,7 +17,7 @@ from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSiz
 from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_response import load_analysis, BlastResponse
+from scripts.blast_parser import load_analysis, BlastParser
 from scripts import utils
 from scripts.utils import fragile
 from scripts.analysis import find_strain_with_multiple_hits, find_alignments_with_stop_codons
@@ -44,10 +44,9 @@ def download_table_xlsx():
     if grid_df.empty:
         return 'No rows to show'.encode('utf-8')
 
-    # Add hseq column to grid_df from blast_response.whole_df
-    whole_df = st.session_state.blast_response.whole_df
-    df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df = df.drop(columns=['id', 'query_id'])
+    # Add sseq column to grid_df from blast_parser.whole_df
+    whole_df = st.session_state.blast_parser.whole_df
+    df = pd.merge(grid_df, whole_df[['id', 'sseq']], on=['id'], how='inner')
 
     filename = 'blast.xlsx'
     data = utils.generate_xlsx_table(df)
@@ -59,10 +58,9 @@ def download_table_csv():
     if grid_df.empty:
         return 'No rows to show'.encode('utf-8')
 
-    # Add hseq column to grid_df from blast_response.whole_df
-    whole_df = st.session_state.blast_response.whole_df
-    df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df = df.drop(columns=['id', 'query_id'])
+    # Add sseq column to grid_df from blast_parser.whole_df
+    whole_df = st.session_state.blast_parser.whole_df
+    df = pd.merge(grid_df, whole_df[['id', 'sseq']], on=['id'], how='inner')
 
     table_data: bytes = df.to_csv(index=False).encode('utf-8')
 
@@ -75,17 +73,17 @@ def download_hit_sequences():
         return f">{strain}_NODE_{node};{query_title}"
 
     grid_df: pd.DataFrame = st.session_state.grid_df
-    whole_df: pd.DataFrame = st.session_state.blast_response.whole_df
+    whole_df: pd.DataFrame = st.session_state.blast_parser.whole_df
 
     if grid_df.empty:
         return 'No rows to show'
 
-    df = pd.merge(grid_df, whole_df[['id', 'hseq']], on=['id'], how='inner')
+    df = pd.merge(grid_df, whole_df[['id', 'sseq']], on=['id'], how='inner')
     df = df.drop(columns=['id'])
 
     df.insert(0, 'headers', df[['strain', 'node', 'query_title']].apply(lambda x: get_header(*x), axis=1))
     headers: list[str] = df['headers'].to_list()
-    sequences: list[str] = df['hseq'].to_list()
+    sequences: list[str] = df['sseq'].to_list()
 
     lines = list()
     for header, sequence in zip(headers, sequences):
@@ -100,9 +98,9 @@ def download_hit_sequences():
 
 def download_all_alignments():
     grid_df = st.session_state.grid_df
-    blast_response = st.session_state.blast_response
+    blast_parser = st.session_state.blast_parser
 
-    alignments = blast_response.alignments(indexes=grid_df['id'])
+    alignments = blast_parser.alignments(indexes=grid_df['id'])
     alignments = '\n\n\n\n'.join(alignments).encode('utf-8')
 
     filename = 'alignments.txt'
@@ -199,7 +197,6 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
     gb.configure_column("Row", valueGetter="node.rowIndex + 1", enableRowGroup=False, aggFunc='first', pinned='left')
     gb.configure_columns(['query_title', 'strain', 'node'], aggFunc='count')
     gb.configure_column('id', hide=True)
-    gb.configure_column('query_id', hide=True)
 
     # Suppress the virtualisation of the columns. In this way the autosize of the column works as stated in the docs
     # https://www.ag-grid.com/javascript-data-grid/column-sizing/#auto-size-columns
@@ -308,18 +305,9 @@ def sidebar_options():
         del st.session_state['analysis_folder_cleared']
 
 
-def show_blast_errors():
-    blast_response = st.session_state.blast_response
-
-    for message in blast_response.messages:
-        st.warning(message)
-
-
-def choose_analysis_to_load() -> BlastResponse:
-    # .iterdir() returns a generator, and sorted() has the side effect of consuming the generator.
+def choose_analysis_to_load() -> BlastParser:
     Path('./Analysis/').mkdir(parents=True, exist_ok=True)
-    analysis_outputs = Path('./Analysis/').iterdir()
-    analysis_outputs = sorted(analysis_outputs, reverse=True)
+    analysis_outputs = Path('./Analysis/').glob('*.tsv')
 
     if not analysis_outputs:
         st.warning('Please run a BLAST search first in "Blast Query" page.')
@@ -329,15 +317,14 @@ def choose_analysis_to_load() -> BlastResponse:
 
         st.stop()
 
-    # Remove queries from results
-    analysis_outputs = [file for file in analysis_outputs if '_query.fasta' not in str(file)]
+    analysis_outputs = sorted(analysis_outputs, reverse=True)
     analysis_outputs = [file.name for file in analysis_outputs]
 
-    # If there is a blast_response in session_state, preselect the corresponding analysis
-    if 'blast_response' in st.session_state:
-        blast_response = st.session_state['blast_response']
-        json_loaded = blast_response.json_file.name
-        preselected_index = analysis_outputs.index(json_loaded)
+    # If there is a blast_parser in session_state, preselect the corresponding analysis
+    if 'blast_parser' in st.session_state:
+        blast_parser = st.session_state['blast_parser']
+        file_loaded = blast_parser.file.name
+        preselected_index = analysis_outputs.index(file_loaded)
     else:
         preselected_index = 0
 
@@ -350,13 +337,13 @@ def choose_analysis_to_load() -> BlastResponse:
 
     try:
         with st.spinner('Loading analysis...'):
-            blast_response = load_analysis(json_to_load)
+            blast_parser = load_analysis(json_to_load)
 
     except json.JSONDecodeError:
         st.error('The selected file is not a valid JSON file! Probably the BLAST search did not finish correctly.')
         st.stop()
 
-    return blast_response
+    return blast_parser
 
 
 def main():
@@ -368,26 +355,15 @@ def main():
     st.title('Blast results!')
     sidebar_options()
 
-    # Check that BLAST is installed
-    if 'blast_exec' not in st.session_state:
-        blast_exec = utils.get_programs_path()
-        st.session_state['blast_exec'] = blast_exec
-
-    if st.session_state['blast_exec'] is None:
-        st.error('Could not find BLAST. Please download it in the home section.')
-        if st.button('Go to home'):
-            switch_page('Home')
-        st.stop()
-
     # Load analysis and show selectbox to choose it. By default, choose the analysis last loaded
-    blast_response = choose_analysis_to_load()
-    st.session_state['blast_response'] = blast_response
+    blast_parser = choose_analysis_to_load()
+    st.session_state['blast_parser'] = blast_parser
 
-    if blast_response.df.empty:
+    if blast_parser.df.empty:
         st.warning('No results found by BLAST!')
         st.stop()
 
-    df = blast_response.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
+    df = blast_parser.filtered_df(st.session_state['perc_identity'], st.session_state['perc_alignment'])
 
     tabs = st.tabs(['Table', 'Alignments', 'Graphic summary', 'Analysis', 'About this analysis'])
     tab_table, tab_alignments, tab_graphic_summary, tab_analysis, tab_about = tabs
@@ -398,51 +374,7 @@ def main():
         download_container = st.empty()
         set_download_buttons(download_container)
 
-        tab_description = st.expander('❓ How to work with the table', expanded=False)
-        with tab_description:
-            st.markdown("""
-            ##### 1) Main features
-            You can work with this table in a similar fashion as you would do with a spreadsheet.
-            Click on a column to sort it. You can also group by and filter the columns.
-            
-            """)
-
-            # streamlit.image() cannot read from the temporary folder created by PyInstaller (sys._MEIPASS)
-            # given by resource_path(), so we need to give it the bytes of the image.
-            col1, col2, col3 = st.columns([1, 1, 1])
-            col1.image(utils.resource_path('./media/hover_menu.png').read_bytes(),
-                       "By hovering on a header you can access the menu of the column")
-            col2.image(utils.resource_path('./media/hover_menu_group_by.png').read_bytes(),
-                       "You can group the column by its values")
-            col3.image(utils.resource_path('./media/hover_menu_filter_by.png').read_bytes(),
-                       'You can filter the column and choose which values to show')
-
-            st.image(utils.resource_path('./media/vertical_tabs_aggrid.png').read_bytes(),
-                     "Alternatively, you can use the vertical tabs to access the same options")
-
-            st.markdown("""
-            ##### 1.1) Example
-            For example, you can group by *"strain"* to see how many hits each strain has, and click on the
-            *"count(query_title)"* column to sort it. It's very useful if you want to quickly find multiple
-            matches for the same strain, like in a search for a duplicate gene. It works best if you have only 
-            one query, otherwise it gets a bit messy.
-            """)
-
-            st.image(utils.resource_path('./media/group_by_strain.png').read_bytes(), "Group by strain")
-            st.image(utils.resource_path('./media/group_by_strain2.png').read_bytes(),
-                     "Sort by count(query_title). You can see two matches of \"Query_1\" in the same strain \"SEB053\"")
-
-            st.markdown("""
-            ##### 2) Selecting rows
-            You can select rows by clicking on them. To select multiple rows, press *ctrl* while clicking, or
-            click on a row and while pressing *shift* click another one to select all the rows in between.
-            
-            ##### 3) Resetting the table
-            To reset any filtering, sorting, aggregation or selection you can click on the menu of any column and 
-            click on "Reset Columns".
-            """)
-
-        if df.shape[0] > 100_000:
+        if df.shape[0] > 50_000:
             st.warning(f'The table has {df.shape[0]} rows. The program may take a few seconds to '
                        f'load or may even crash.')
 
@@ -464,12 +396,12 @@ def main():
             row_indexes = row_indexes[:50]
             indexes = pd.Series(indexes[:50])
 
-            alignments = blast_response.alignments(indexes=indexes)
+            alignments = blast_parser.alignments(indexes=indexes)
 
             if row_indexes:
                 st.subheader(f"Showing alignments for {len(row_indexes)} selected rows")
 
-            whole_df = blast_response.whole_df
+            whole_df = blast_parser.whole_df
             for row, selected_json_index, alignment in zip(row_indexes, indexes, alignments):
                 num_col, alignments_col = st.columns([1, 10])
 
@@ -478,7 +410,7 @@ def main():
                 except TypeError:
                     num_col.subheader(f"#)")
 
-                if whole_df.iloc[[selected_json_index]].hseq.str.len().max() > 1000:
+                if whole_df.iloc[[selected_json_index]].sseq.str.len().max() > 1000:
                     alignments_col.info("The alignment is too long to be displayed. If you want to see even "
                                         "long alignments please download them all by clicking the button above "
                                         "the table.")
@@ -506,16 +438,16 @@ def main():
         start, end = int(start) - 1, int(end)
         indexes = grid_df['id'][start:end]
 
-        alignments = blast_response.alignments(indexes=indexes)
+        alignments = blast_parser.alignments(indexes=indexes)
 
-        whole_df = blast_response.whole_df
+        whole_df = blast_parser.whole_df
         for i, index_alignment in enumerate(zip(indexes, alignments)):
             index, alignment = index_alignment
             num_col, alignments_col = st.columns([1, 10])
 
             num_col.subheader(f"{start + i + 1})")
 
-            if whole_df.iloc[[index]].hseq.str.len().max() > 1000:
+            if whole_df.iloc[[index]].sseq.str.len().max() > 1000:
                 alignments_col.info("The alignment is too long to be displayed. If you want to see even "
                                     "long alignments please download them all by clicking the button above "
                                     "the table.")
@@ -529,15 +461,13 @@ def main():
             st.warning('No alignments to show')
             raise fragile.Break()
 
-        # [{'query_id1': str, 'query_title': str, 'query_len': int}, ...]
-        queries: list[dict] = blast_response.metadata['queries']
-        queries: dict = {query['query_id']: query['query_title'] for query in queries}
+        query_titles: pd.Series = blast_parser.whole_df['query_title'].unique()
 
         # Show query titles as options but return the query ids
         st.selectbox('Select the query:',
-                     options=queries.keys(), key='query_selectbox', format_func=lambda x: queries[x])
+                     options=query_titles, key='query_selectbox')
 
-        indexes = grid_df[grid_df['query_id'] == st.session_state['query_selectbox']]['id']
+        indexes = grid_df[grid_df['query_title'] == st.session_state['query_selectbox']]['id']
 
         if not list(indexes):
             st.info('No alignments to show')
@@ -547,7 +477,7 @@ def main():
         st.subheader(f'Distribution of the top {min(max_hits, len(indexes))} Hits')
         st.write('Sorted by Evalue and alignment percentage')
 
-        st.bokeh_chart(blast_response.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
+        st.bokeh_chart(blast_parser.plot_alignments_bokeh(indexes=indexes, max_hits=max_hits),
                        use_container_width=True)
 
     with fragile(tab_analysis):
@@ -567,67 +497,69 @@ def main():
 
     with tab_about:
 
-        program = blast_response.program
-        program_and_version = blast_response.metadata['version']
-        params = blast_response.metadata['params']
+        program = blast_parser.metadata['program']
+        version = blast_parser.metadata['version']
+        # params = blast_parser.metadata['params']
+        #
+        # if program == 'blastn':
+        #     results_params = f"""
+        #     **Evalue**: {params['expect']}\n
+        #     **Gap penalty**: Existence: {params['gap_open']}
+        #     Extension: {params['gap_extend']}\n
+        #     **Reward/Penalty**: Match: {params['sc_match']}
+        #     Mismatch: {params['sc_mismatch']}\n
+        #     **Filter**: {params['filter']}\n
+        #     """
+        #
+        # elif program == 'blastp':
+        #     results_params = f"""
+        #     **Matrix**: {params['matrix']}\n
+        #     **Evalue**: {params['expect']}\n
+        #     **Gap penalty**: Existence: {params['gap_open']}
+        #     Extension: {params['gap_extend']}\n
+        #     **Filter**: {params['filter']}\n
+        #     **Composition-based statistics**: {params['cbs']}\n
+        #     """
+        #
+        # elif program == 'blastx':
+        #     results_params = f"""
+        #     **Matrix**: {params['matrix']}\n
+        #     **Evalue**: {params['expect']}\n
+        #     **Gap penalty**: Existence: {params['gap_open']}
+        #     Extension: {params['gap_extend']}\n
+        #     **Filter**: {params['filter']}\n
+        #     **Composition-based statistics**: {params['cbs']}\n
+        #     **Query Gencode**: {params['query_gencode']}\n
+        #     """
+        #
+        # elif program == 'tblastn':
+        #     results_params = f"""
+        #     **Matrix**: {params['matrix']}\n
+        #     **Evalue**: {params['expect']}\n
+        #     **Gap penalty**: Existence: {params['gap_open']}
+        #     Extension: {params['gap_extend']}\n
+        #     **Filter**: {params['filter']}\n
+        #     **Database Gencode**: {params['db_gencode']}\n
+        #     """
+        #
+        # elif program == 'tblastx':
+        #     results_params = f"""
+        #
+        #     **Matrix**: {params['matrix']}\n
+        #     **Evalue**: {params['expect']}\n
+        #     **Filter**: {params['filter']}\n
+        #     **Query Gencode**: {params['query_gencode']}\n
+        #     **Database Gencode**: {params['db_gencode']}\n
+        #
+        #     """
+        #
+        # else:
+        #     results_params = ''
 
-        if program == 'blastn':
-            results_params = f"""
-            **Evalue**: {params['expect']}\n
-            **Gap penalty**: Existence: {params['gap_open']} 
-            Extension: {params['gap_extend']}\n
-            **Reward/Penalty**: Match: {params['sc_match']} 
-            Mismatch: {params['sc_mismatch']}\n
-            **Filter**: {params['filter']}\n
-            """
-
-        elif program == 'blastp':
-            results_params = f"""
-            **Matrix**: {params['matrix']}\n
-            **Evalue**: {params['expect']}\n
-            **Gap penalty**: Existence: {params['gap_open']} 
-            Extension: {params['gap_extend']}\n
-            **Filter**: {params['filter']}\n
-            **Composition-based statistics**: {params['cbs']}\n
-            """
-
-        elif program == 'blastx':
-            results_params = f"""
-            **Matrix**: {params['matrix']}\n
-            **Evalue**: {params['expect']}\n
-            **Gap penalty**: Existence: {params['gap_open']} 
-            Extension: {params['gap_extend']}\n
-            **Filter**: {params['filter']}\n
-            **Composition-based statistics**: {params['cbs']}\n
-            **Query Gencode**: {params['query_gencode']}\n
-            """
-
-        elif program == 'tblastn':
-            results_params = f"""
-            **Matrix**: {params['matrix']}\n
-            **Evalue**: {params['expect']}\n
-            **Gap penalty**: Existence: {params['gap_open']} 
-            Extension: {params['gap_extend']}\n
-            **Filter**: {params['filter']}\n
-            **Database Gencode**: {params['db_gencode']}\n
-            """
-
-        elif program == 'tblastx':
-            results_params = f"""
-            
-            **Matrix**: {params['matrix']}\n
-            **Evalue**: {params['expect']}\n
-            **Filter**: {params['filter']}\n
-            **Query Gencode**: {params['query_gencode']}\n
-            **Database Gencode**: {params['db_gencode']}\n
-            
-            """
-
-        else:
-            results_params = ''
+        results_params = ''
 
         st.markdown(f"""
-            ## Analysis made with {program_and_version}
+            ## Analysis made with {program.upper()} {version}
         
             #### Options:
             {results_params}
@@ -637,7 +569,7 @@ def main():
 
         # try to look for the file containing the query
         try:
-            query_file = str(blast_response.json_file).replace('_results.json', '_query.fasta')
+            query_file = str(blast_parser.file).replace('_results.json', '_query.fasta')
             query_text = Path(query_file).read_text()
             query_seqs = query_text.split('>')[1:]
 
@@ -650,10 +582,9 @@ def main():
         except FileNotFoundError:
             st.info('The file containing the query sequences was not found')
 
-        for index, query in enumerate(blast_response.metadata['queries']):
+        for index, query in enumerate(blast_parser.metadata['queries']):
             st.markdown(f"""
             #### Query {index + 1}:
-            **Query id**: {query['query_id']}\n
             **Query title**: {query['query_title']}\n
             **Query length**: {query['query_len']}""")
 
