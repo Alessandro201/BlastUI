@@ -5,75 +5,109 @@ import pandas as pd
 import streamlit as st
 
 from scripts.utils import generate_xlsx_table
+from st_keyup import st_keyup
+
+from pandas.api.types import is_string_dtype
+from pandas.api.types import is_numeric_dtype
+import numpy as np
 
 
 def analyze(df, container):
-    st.header('Strains with stop codons in the alignment')
+    st.header('Hits with stop codons in the alignment')
 
-    blast_response = st.session_state.blast_response
-    queries = blast_response.queries
-    whole_df = blast_response.whole_df
+    blast_parser = st.session_state.blast_parser
+    whole_df = blast_parser.whole_df
 
-    no_results = True
-    for query in queries:
-        query_title = query['query_title']
-        query_id = query['query_id']
+    df_with_seqs: pd.DataFrame = __find_stop_codons_in_sequence(df, whole_df)
 
-        temp_df = df[df['query_id'] == query_id]
-
-        df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-        dup = temp_df[df_with_seqs['hseq'].apply(lambda x: '*' in x)]
-
-        if dup.empty:
-            continue
-
-        no_results = False
-
-        container.subheader(query_title)
-
-        dup.sort_values(by=['strain'], inplace=True)
-        dup.index = dup.index + 1
-        __set_download_buttons(dup, container)
-
-        container.dataframe(dup)
-
-    if no_results:
+    if df_with_seqs.empty:
         container.info('No hits have stop codons inside the matched sequence.')
+        return
+
+    n_query = df_with_seqs['query_title'].unique().shape[0]
+    n_matches = df_with_seqs.shape[0]
+    container.write(f"Found {n_query} queries which matched {n_matches} sequences with stop codons inside.")
+    container.write(f"Download all as:")
+
+    __set_download_buttons(df_with_seqs, container)
+
+    container.subheader('Search in the table:')
+    # __set_download_buttons(df_with_seqs, container)
+    query_col, btn_col = container.columns([7, 1])
+    with query_col:
+        filter_query = st_keyup('Search in the whole table', debounce=100)
+
+    with btn_col:
+        use_regex = st.checkbox('Use regex', key='use_regex', value=False)
+
+    if filter_query:
+        # query_title is the first column
+        filtered_df = df_with_seqs[df_with_seqs['query_title'].str.contains(filter_query, case=False, regex=use_regex)]
+
+        for column in df_with_seqs.columns[1:]:
+            if is_string_dtype(df_with_seqs[column]):
+                filtered_df_2 = df_with_seqs[
+                    df_with_seqs[column].str.contains(filter_query, case=False, regex=use_regex)]
+
+            elif is_numeric_dtype(df_with_seqs[column]):
+                try:
+                    float(filter_query)
+                except ValueError:
+                    continue
+
+                # Search if the value is close to the filter_query, to avoid floating point errors
+                filtered_df_2 = df_with_seqs[np.isclose(df_with_seqs[column].astype(float), float(filter_query))]
+            else:
+                continue
+
+            filtered_df = pd.concat([filtered_df, filtered_df_2])
+
+        if filtered_df.empty:
+            container.info('The search did not match any results.')
+            return
+
+        __set_download_buttons(filtered_df, container)
+
+        filtered_df = filtered_df.drop_duplicates()
+        st.dataframe(filtered_df)
+        st.write(f'Found {filtered_df.shape[0]} results.')
+    else:
+        st.dataframe(df_with_seqs)
 
 
+@st.cache_data(show_spinner=False)
+def __find_stop_codons_in_sequence(df, whole_df) -> pd.DataFrame:
+    df_with_seqs = pd.merge(df, whole_df[['id', 'sseq']], on=['id'], how='inner')
+    df_with_seqs = df_with_seqs[df_with_seqs['sseq'].str.count('\*') > 0]
+
+    return df_with_seqs
+
+
+@st.cache_data(show_spinner=False)
 def __download_table_xlsx(df) -> bytes:
-    # Add hseq column to grid_df from blast_response.whole_df
-    whole_df = st.session_state.blast_response.whole_df
-    df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df_with_seqs = df_with_seqs.drop(columns=['id', 'query_id'])
+    # Add sseq column to grid_df from blast_parser.whole_df
+    whole_df = st.session_state.blast_parser.whole_df
+    df_with_seqs = pd.merge(df, whole_df[['id', 'sseq']], on=['id'], how='inner')
 
     return generate_xlsx_table(df_with_seqs)
 
 
-def __download_table_csv(df) -> bytes:
-    # Add hseq column to grid_df from blast_response.whole_df
-    whole_df = st.session_state.blast_response.whole_df
-    df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df_with_seqs = df_with_seqs.drop(columns=['id', 'query_id'])
-
+@st.cache_data(show_spinner=False)
+def __download_table_csv(df_with_seqs) -> bytes:
     table_data: bytes = df_with_seqs.to_csv(index=False).encode('utf-8')
 
     return table_data
 
 
-def __download_hit_sequences(df) -> bytes:
+@st.cache_data(show_spinner=False)
+def __download_hit_sequences(df_with_seqs) -> bytes:
     def get_header(strain, node, query_title):
         return f">{strain}_NODE_{node};{query_title}"
 
-    whole_df: pd.DataFrame = st.session_state.blast_response.whole_df
-
-    df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df_with_seqs = df_with_seqs.drop(columns=['id'])
-
-    df_with_seqs.insert(0, 'headers',
-                        df_with_seqs[['strain', 'node', 'query_title']].apply(lambda x: get_header(*x), axis=1))
-    headers: list[str] = df_with_seqs['headers'].to_list()
-    sequences: list[str] = df_with_seqs['hseq'].to_list()
+    # insert without inplace
+    headers = df_with_seqs[['strain', 'node', 'query_title']].apply(lambda x: get_header(*x), axis=1)
+    headers: list[str] = headers
+    sequences: list[str] = df_with_seqs['sseq'].to_list()
 
     lines = list()
     for header, sequence in zip(headers, sequences):
@@ -85,10 +119,11 @@ def __download_hit_sequences(df) -> bytes:
     return lines
 
 
-def __download_all_alignments(df) -> bytes:
-    blast_response = st.session_state.blast_response
+@st.cache_data(show_spinner=False)
+def __download_all_alignments(df_with_seqs) -> bytes:
+    blast_parser = st.session_state.blast_parser
 
-    alignments = blast_response.alignments(indexes=df['id'])
+    alignments = blast_parser.alignments(indexes=df_with_seqs['id'])
     alignments = '\n\n\n\n'.join(alignments).encode('utf-8')
     return alignments
 
@@ -99,6 +134,7 @@ def __get_unique_keys(n=1) -> tuple:
     keys = set()
     while len(keys) < n:
         key = random.choices(ascii_letters, k=10)
+        key = ''.join(key)
         if key not in st.session_state.keys():
             keys.add(key)
 

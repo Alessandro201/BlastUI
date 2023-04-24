@@ -666,6 +666,7 @@ def main():
                 # communicate() will wait until the process terminates
                 p = st.session_state['process']
                 out, err = p.communicate()
+
                 if p.returncode != 0:
                     raise subprocess.CalledProcessError(p.returncode, p.args, output=out, stderr=err)
 
