@@ -1,0 +1,13 @@
+name: BlastUI
+dependencies:
+  - python>=3.10
+  - streamlit>=1.21.0
+  - streamlit-aggrid==0.3.3
+  - pandas>=1.5.3
+  - bokeh==2.4.3
+  - pip
+  - pip:
+    - streamlit-extras
+    - streamlit-option-menu
+    - regex_spm
+
