@@ -1,18 +1,25 @@
-import json as json
 import re
+from itertools import repeat
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import regex_spm
 import streamlit as st
 from bokeh.models import (ColumnDataSource, HoverTool)
 from bokeh.models import Legend, Rect
 from bokeh.plotting import figure
 
+from scripts.substitution_matrix import get_matrix, get_substitution_score
+
+
+class EmptyCSVError(Exception):
+    pass
+
 
 class Alignment:
-    def __init__(self, row, program):
-        self.program = program
+    def __init__(self, row, program, subtitution_matrix='BLOSUM62'):
+        self.program = program.lower()
 
         if self.program not in ['blastn', 'blastp', 'blastx', 'tblastn', 'tblastx']:
             raise ValueError(f"Invalid program: {self.program}")
@@ -22,81 +29,61 @@ class Alignment:
         self.strain: str = row['strain']
         self.node: int = int(row['node'])
 
-        self.qseq: str = row['qseq']
-        self.midline: str = row['midline']
-        self.sseq: str = row['hseq']
-
         self.align_len: int = row['align_len']
         self.identity: int = row['identity']
 
         self.gaps: int = row['gaps']
-        self.q_gap: int = row['q_gaps']
-        self.s_gap: int = row['s_gaps']
-        self.gap_opens: int = row['gap_opens']
+        self.gap_opens: int = row['gap_open']
         self.mismatch: int = row['mismatch']
 
         self.perc_identity: float = row['perc_identity']
         self.perc_alignment: float = row['perc_alignment']
-        self.perc_gaps: float = row['perc_gaps']
-        self.perc_mismatches = row['perc_mismatches']
+        self.perc_gaps: float = np.round(self.gaps / self.align_len * 100)
+        self.perc_mismatch = np.round(self.mismatch / (self.align_len - self.gaps) * 100)
 
-        self.q_from: int = row['query_from']
-        self.q_to: int = row['query_to']
-        self.s_from: int = row['hit_from']
-        self.s_to: int = row['hit_to']
+        self.q_start: int = row['query_start']
+        self.q_end: int = row['query_end']
+        self.s_start: int = row['seq_start']
+        self.s_end: int = row['seq_end']
 
         self.evalue: float = row['evalue']
         self.bit_score: float = row['bit_score']
         self.score: int = row['score']
 
         if self.program in ('tblastn', 'blastx', 'blastp', 'tblastx'):
+            self.matrix = get_matrix(subtitution_matrix)
             self.positive: int = row['positive']
             self.perc_positives: float = round(self.positive / self.align_len * 100)
 
-        match self.program:
-            case 'blastn':
-                self.q_orient: str = row['query_strand']
-                self.s_orient: str = row['hit_strand']
-            case 'blastp':
-                self.q_orient: str = "forward"
-                self.s_orient: str = "forward"
-            case 'blastx':
-                self.q_frame = row['query_frame']
-                self.q_orient: str = "forward" if int(self.q_frame) > 0 else "reverse"
-                self.s_orient: str = "forward"
-            case 'tblastn':
-                self.s_frame = row['hit_frame']
-                self.q_orient: str = "forward"
-                self.s_orient: str = "forward" if int(self.s_frame) > 0 else "reverse"
-            case 'tblastx':
-                self.q_frame = row['query_frame']
-                self.s_frame = row['hit_frame']
-                self.q_orient: str = "forward" if int(self.q_frame) > 0 else "reverse"
-                self.s_orient: str = "forward" if int(self.s_frame) > 0 else "reverse"
+        self.qseq: str = row['qseq']
+        self.sseq: str = row['sseq']
+        self.midline: str = self._get_midline()
+
+        # Find orientation of the strands
+        self.q_frame = row['query_frame']
+        self.s_frame = row['seq_frame']
+        self.q_orient: str = "forward" if int(self.q_frame) >= 0 else "reverse"
+        self.s_orient: str = "forward" if int(self.s_frame) >= 0 else "reverse"
 
         # If the query or the sequence are translated, their positions in the alignment are multiplied by 3
-        match self.program:
-            case 'tblastn':
-                self.q_multiplier = 1
-                self.s_multiplier = 3
-
-            case 'blastx':
-                self.q_multiplier = 3
-                self.s_multiplier = 1
-
-            case 'tblastx':
-                self.s_multiplier = 3
-                self.q_multiplier = 3
-
-            case 'blastp' | 'blastn' | _:
-                self.s_multiplier = 1
-                self.q_multiplier = 1
+        if self.program == 'tblastn':
+            self.q_multiplier = 1
+            self.s_multiplier = 3
+        elif self.program == 'blastx':
+            self.q_multiplier = 3
+            self.s_multiplier = 1
+        elif self.program == 'tblastx':
+            self.s_multiplier = 3
+            self.q_multiplier = 3
+        elif self.program in ('blastp', 'blastn'):
+            self.s_multiplier = 1
+            self.q_multiplier = 1
 
         # The number of padding spaces for the indexes in the alignment depends on the number of digits
-        self.pad = max(len(str(self.s_from)),
-                       len(str(self.q_from)),
-                       len(str(self.s_to)),
-                       len(str(self.q_to)))
+        self.pad = max(len(str(self.s_start)),
+                       len(str(self.q_start)),
+                       len(str(self.s_end)),
+                       len(str(self.q_end)))
 
     def align(self):
         match self.program:
@@ -124,13 +111,16 @@ class Alignment:
                          f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
                          f"Gap opens = {self.gap_opens}\n" \
                          f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
-                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatch}%), " \
                          f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
                          f"\tFrame = {self.s_frame}\n\n"
 
         return alignment_text
 
     def _blastn_header(self):
+        q_strand = "Plus" if self.q_orient == 'forward' else "Minus"
+        s_strand = "Plus" if self.s_orient == 'forward' else "Minus"
+
         alignment_text = f">{self.query_title} \n" \
                          f"Strain = {self.strain}, Node = {self.node}\n" \
                          f"\tScore = {round(self.bit_score)} bits ({self.score}), " \
@@ -138,9 +128,9 @@ class Alignment:
                          f"\tIdentities = {self.identity}/{self.align_len} ({self.perc_identity}%), " \
                          f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
                          f"Gap opens = {self.gap_opens}\n" \
-                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatch}%), " \
                          f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
-                         f"\tStrand = {self.q_orient}/{self.s_orient}\n\n"
+                         f"\tStrand = {q_strand}/{s_strand}\n\n"
 
         return alignment_text
 
@@ -153,7 +143,7 @@ class Alignment:
                          f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
                          f"Gap opens = {self.gap_opens}\n" \
                          f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
-                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatch}%), " \
                          f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
                          f"\tQuery frame = {self.q_frame}\n\n"
 
@@ -168,7 +158,7 @@ class Alignment:
                          f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
                          f"Gap opens = {self.gap_opens}\n" \
                          f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
-                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatch}%), " \
                          f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n\n"
 
         return alignment_text
@@ -182,7 +172,7 @@ class Alignment:
                          f"Query coverage = {self.align_len}/{self.query_len} ({self.perc_alignment}%), " \
                          f"Gap opens = {self.gap_opens}\n" \
                          f"\tPositives = {self.positive}/{self.align_len} ({self.perc_positives}%), " \
-                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatches}%), " \
+                         f"Mismatches = {self.mismatch}/{self.align_len} ({self.perc_mismatch}%), " \
                          f"Gaps = {self.gaps}/{self.align_len} ({self.perc_gaps}%)\n" \
                          f"\tFrame = {self.q_frame}/{self.s_frame}\n\n"
 
@@ -207,28 +197,28 @@ class Alignment:
             # Query
             if self.q_orient == 'forward':
                 # Forward strand or positive frame
-                q_start = self.q_from + (index - prev_query_gaps) * self.q_multiplier
-                q_end = self.q_from + (index + 60 - query_gaps) * self.q_multiplier - 1
-                q_end = min(q_end, self.q_to)
+                q_start = self.q_start + (index - prev_query_gaps) * self.q_multiplier
+                q_end = self.q_start + (index + 60 - query_gaps) * self.q_multiplier - 1
+                q_end = min(q_end, self.q_end)
 
             else:
                 # Reverse strand or negative frame
-                q_start = self.q_to - (index - prev_query_gaps) * self.q_multiplier
-                q_end = self.q_to - (index + 60 - query_gaps) * self.q_multiplier + 1
-                q_end = max(q_end, self.q_from)
+                q_start = self.q_start - (index - prev_query_gaps) * self.q_multiplier
+                q_end = self.q_start - (index + 60 - query_gaps) * self.q_multiplier + 1
+                q_end = max(q_end, self.q_end)
 
             # Subject
             if self.s_orient == 'forward':
                 # Forward strand or positive frame
-                s_start = self.s_from + (index - prev_seq_gaps) * self.s_multiplier
-                s_end = self.s_from + (index + 60 - seq_gaps) * self.s_multiplier - 1
-                s_end = min(s_end, self.s_to)
+                s_start = self.s_start + (index - prev_seq_gaps) * self.s_multiplier
+                s_end = self.s_start + (index + 60 - seq_gaps) * self.s_multiplier - 1
+                s_end = min(s_end, self.s_end)
 
             else:
                 # Reverse strand or negative frame
-                s_start = self.s_to - (index - prev_seq_gaps) * self.s_multiplier
-                s_end = self.s_to - (index + 60 - seq_gaps) * self.s_multiplier + 1
-                s_end = max(s_end, self.s_from)
+                s_start = self.s_start - (index - prev_seq_gaps) * self.s_multiplier
+                s_end = self.s_start - (index + 60 - seq_gaps) * self.s_multiplier + 1
+                s_end = max(s_end, self.s_end)
 
             prev_query_gaps = query_gaps
             prev_seq_gaps = seq_gaps
@@ -240,137 +230,201 @@ class Alignment:
 
         return alignment_text
 
+    def _get_midline(self):
+        """
+        Get midline between query and alignment to know which residues are the same and which are different.
+        """
+        
+        midline = []
 
-class BlastResponse:
+        if self.program == 'blastn':
+            for q, s in zip(self.qseq.upper(), self.sseq.upper()):
+                if q == s:
+                    midline.append('|')
+                else:
+                    # Gap in either sequences or mismatch
+                    midline.append(' ')
+        else:
+            for q, s in zip(self.qseq.upper(), self.sseq.upper()):
+                if q == s:
+                    midline.append(q)
+                elif q == '-' or s == '-':
+                    # Gap in either sequences
+                    midline.append(' ')
+                else:
+                    score = get_substitution_score(q, s, self.matrix)
+                    midline.append('+' if score > 0 else ' ')
+
+        return ''.join(midline)
+
+
+class BlastParser:
     headers = {
         'tblastn': ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                    'identity', 'positive', 'mismatch', 'gap_opens', 'query_from', 'query_to', 'hit_from',
-                    'hit_to', 'evalue', 'bit_score', 'query_id', 'id'],
+                    'identity', 'positive', 'mismatch', 'gap_open', 'query_start', 'query_end', 'seq_start',
+                    'seq_end', 'evalue', 'bit_score', 'query_frame', 'seq_frame', 'id'],
         'blastn': ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                   'identity', 'mismatch', 'gap_opens', 'query_from', 'query_to', 'hit_from',
-                   'hit_to', 'evalue', 'bit_score', 'query_id', 'id'],
+                   'identity', 'mismatch', 'gap_open', 'query_start', 'query_end', 'seq_start',
+                   'seq_end', 'evalue', 'bit_score', 'query_frame', 'seq_frame', 'id'],
         'blastp': ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                   'identity', 'positive', 'mismatch', 'gap_opens', 'query_from', 'query_to', 'hit_from',
-                   'hit_to', 'evalue', 'bit_score', 'query_id', 'id'],
+                   'identity', 'positive', 'mismatch', 'gap_open', 'query_start', 'query_end', 'seq_start',
+                   'seq_end', 'evalue', 'bit_score', 'query_frame', 'seq_frame', 'id'],
         'blastx': ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                   'identity', 'mismatch', 'gap_opens', 'query_from', 'query_to', 'hit_from',
-                   'hit_to', 'evalue', 'bit_score', 'query_id', 'id'],
+                   'identity', 'mismatch', 'gap_open', 'query_start', 'query_end', 'seq_start',
+                   'seq_end', 'evalue', 'bit_score', 'query_frame', 'seq_frame', 'id'],
         'tblastx': ['query_title', 'strain', 'node', 'perc_identity', 'perc_alignment', 'query_len', 'align_len',
-                    'identity', 'mismatch', 'gap_opens', 'query_from', 'query_to', 'hit_from',
-                    'hit_to', 'evalue', 'bit_score', 'query_id', 'id']
+                    'identity', 'mismatch', 'gap_open', 'query_start', 'query_end', 'seq_start',
+                    'seq_end', 'evalue', 'bit_score', 'query_frame', 'seq_frame', 'id']
+    }
+    pd_columns_dtypes = {
+        'query_title': 'string',
+        'strain': 'string',
+        'identity': 'UInt64',
+        'perc_identity': 'Float64',
+        'query_len': 'UInt64',
+        'align_len': 'UInt64',
+        'perc_alignment': 'Float64',
+        'gaps': 'UInt64',
+        'gap_open': 'UInt64',
+        'mismatch': 'UInt64',
+        'positive': 'UInt64',
+        'perc_positive': 'Float64',
+        'query_start': 'UInt64',
+        'query_end': 'UInt64',
+        'seq_start': 'UInt64',
+        'seq_end': 'UInt64',
+        'query_frame': 'Int8',
+        'seq_frame': 'Int8',
+        'score': 'UInt64',
+        'evalue': 'Float64',
+        'bit_score': 'Float64',
+        'qseq': 'string',
+        'sseq': 'string',
+        'qseqid': 'string',
     }
 
-    def __init__(self, json_file: Path | str):
-        self.json_file: Path = Path(json_file)
-        self.whole_df: pd.DataFrame = pd.DataFrame()
-        self.metadata: dict = {}
-        self.messages: list[str] = []
-        self.queries: list[dict] = []
-        self.program: str = ''
+    def __init__(self, file: Path | str, params: dict = None):
+        """
+        :param file: Path to the blast result file
+        :param params: Additional parameters of the blast analysis. They overwrite the ones found in the file, if any
+        """
 
-        json_data = self._read_json(json_file)
-        self.whole_df, metadata = self._parse_json(json_data)
-        del json_data
+        if file.suffix != '.tsv':
+            raise ValueError(f'File {file} is not a tsv file')
 
-        self.metadata = metadata
-        self.program: str = metadata['program']
-        self.queries: list[dict] = metadata['queries']
-        self.messages: list[str] = metadata['blast_messages']
+        self.file: Path = Path(file)
+        self.query_file: Path = Path(str(self.file.with_suffix('.fasta')).replace('_result', '_query'))
 
-        # Keep only the columns we need depending on the program (blastn, blastp, etc.)
-        columns = self.headers[self.program]
+        self.metadata = self._read_metadata()
+        self.program: str = self.metadata['program']
+        self.queries: list = self.metadata['queries']
+
+        if params:
+            self.metadata['params'].update(params)
+
+        self.whole_df: pd.DataFrame = self._parse_csv()
+
+        queries_df = self.whole_df.drop_duplicates(subset=['query_title', 'query_len'])
+        for row in queries_df.itertuples():
+
+            for index, query in enumerate(self.queries):
+                if query['query_title'] == row.query_title:
+                    self.queries[index]['query_len'] = row.query_len
+                    break
+
+    @property
+    def df(self):
+        """
+        Subset of the main columns depending on the blast program used (blastn, blastp, etc.)
+        """
+
         if self.whole_df.empty:
-            self.df: pd.DataFrame = pd.DataFrame()
-            return
+            df = pd.DataFrame()
+            return df
 
-        self.df: pd.DataFrame = self.whole_df[columns]
+        columns = self.headers[self.program]
+        return self.whole_df[columns]
 
-    @staticmethod
-    def _read_json(json_file: Path):
-        if isinstance(json_file, Path):
-            with open(json_file, 'r') as f:
-                return json.load(f)
-        else:
-            raise TypeError(f"Expected a dict or Path object, got {type(json_file)} instead")
+    def _read_metadata(self):
+        blast_program = 'blastn'
+        version = ''
+        database = ''
+        fields = ''
+        params = dict()
+        queries = list()
+        hits_found = list()
 
-    @staticmethod
-    def _parse_json(json: dict) -> (pd.DataFrame, dict):
-        index = 0
+        with open(self.file, 'r', encoding='utf8') as f:
+            params_block = False
+            for line in f:
+                if line.startswith('# [PARAMS]'):
+                    params_block = True
+
+                elif line.startswith('# [END PARAMS]'):
+                    params_block = False
+
+                elif params_block and line[0] == '#':
+                    re_matches = re.search(r'# ([\w ]+): *([\w ]*)$', line)
+                    if re_matches is None:
+                        continue
+                    key = re_matches.group(1).strip()
+                    value = re_matches.group(2).strip()
+                    params[key] = value
+
+                elif line[0] == '#':
+
+                    match regex_spm.search_in(line):
+                        case r'# (BLASTN|BLASTP|BLASTX|TBLASTN|TBLASTX) (\d+\.\d+.\d+\++)\n' as m:
+                            blast_program, version = m[1], m[2]
+                        case r'# Query: (.+)\n' as m:
+                            queries.append(m[1])
+                        case r'# Database: (.+)\n' as m:
+                            database = m[1]
+                        case r'# Fields: (.+)\n' as m:
+                            fields = m[1]
+                        case r'# (\d+) hits found' as m:
+                            hits_found.append(m[1])
+                        case '_':
+                            pass
+
+        queries_dict = list()
+        for query, hits in zip(queries, hits_found):
+            print(query, hits)
+            queries_dict.append({'query_title': query, 'hits': int(hits)})
+
         metadata = {
-            'queries': list(),
-            'blast_messages': list(),
-            'params': json['BlastOutput2'][0]['report']['params'],
-            'program': json['BlastOutput2'][0]['report']['program'],
-            'version': json['BlastOutput2'][0]['report']['version'],
-            'reference': json['BlastOutput2'][0]['report']['reference'],
-            'search_target': json['BlastOutput2'][0]['report']['search_target'],
+            'program': blast_program.lower(),
+            'version': version,
+            'blast_db': database,
+            'queries': queries_dict,
+            'params': params,
         }
 
-        whole_df = pd.DataFrame()
+        return metadata
 
-        for report in json['BlastOutput2']:
-            report = report['report']
+    def _parse_csv(self) -> (pd.DataFrame, dict):
+        whole_df = pd.read_csv(self.file, sep='\t', engine='c', encoding='utf8',
+                               skip_blank_lines=True, comment='#', header=None, index_col=False,
+                               dtype=self.pd_columns_dtypes, names=list(self.pd_columns_dtypes.keys()))
 
-            # If you don't insert a header in the query sequence, there won't be a query_title
-            query_id: str = report['results']['search']['query_id']
-            query_len: int = report['results']['search']['query_len']
-            try:
-                query_title: str = report['results']['search']['query_title']
-            except KeyError:
-                query_title = query_id
+        if whole_df.empty:
+            raise EmptyCSVError(f"CSV is empty: {self.file}")
 
-            metadata['queries'].append({'query_id': query_id,
-                                        'query_title': query_title,
-                                        'query_len': query_len})
+        if '_NODE_' in whole_df['strain'].iloc[0]:
+            strain_node_df = whole_df['strain'].str.split('_NODE_', expand=True, regex=False)
+            whole_df['strain'] = strain_node_df[0]
+            whole_df.insert(2, 'node', value=strain_node_df[1])
 
-            if "message" in report['results']['search']:
-                metadata['blast_messages'].append(f"Query ***\"{query_title}\"***: \n"
-                                                  f"{report['results']['search']['message']}")
-                continue
+        query_titles = list()
+        for query in self.metadata['queries']:
+            query_titles.extend(repeat(query['query_title'], times=query['hits']))
 
-            hits = list()
-            for strain_hits in report['results']['search']['hits']:
-                strain_node = strain_hits['description'][0]['accession']
-                strain, node = strain_node.split('_NODE_')
-                for hit in strain_hits['hsps']:
-                    hit['id'] = index
-                    hit['strain'] = strain
-                    hit['node'] = node
-                    index += 1
+        if query_titles:
+            whole_df['query_title'] = pd.Series(query_titles)
 
-                hits.extend(strain_hits['hsps'])
+        whole_df['id'] = whole_df.index.copy()
 
-            df = pd.DataFrame().from_records(hits)
-            df['query_title'] = query_title
-            df['query_id'] = query_id
-            df['query_len']: int = query_len
-
-            whole_df = pd.concat((whole_df, df), ignore_index=True)
-
-            whole_df['q_gaps'] = whole_df['qseq'].str.count('-')
-            whole_df['s_gaps'] = whole_df['gaps'] - whole_df['q_gaps']
-            whole_df['mismatch'] = whole_df['align_len'] - whole_df['identity'] - whole_df['gaps']
-
-            count_gap_opens = lambda x: len([match for match in re.findall('-+', x) if match])
-            qseq_gapopens = whole_df['qseq'].apply(count_gap_opens)
-            sseq_gapopens = whole_df['hseq'].apply(count_gap_opens)
-            whole_df['gap_opens'] = qseq_gapopens + sseq_gapopens
-
-            whole_df['perc_identity'] = np.round(whole_df['identity'] / whole_df['align_len'] * 100, 1)
-            whole_df['perc_alignment'] = np.round((whole_df['align_len'] - whole_df['q_gaps']) /
-                                                  whole_df['query_len'] * 100, 1)
-            whole_df['perc_gaps'] = np.round(whole_df['gaps'] / whole_df['align_len'] * 100)
-            whole_df['perc_mismatches'] = np.round(whole_df['mismatch'] /
-                                                   (whole_df['align_len'] - whole_df['gaps']) * 100)
-
-            if metadata['program'] in ('tblastn', 'blastx', 'blastp', 'tblastx'):
-                whole_df['perc_positives'] = np.round(whole_df['positive'] / whole_df['align_len'] * 100)
-
-        if not whole_df.empty:
-            whole_df['index'] = whole_df['id'].copy()
-            whole_df.set_index('index', inplace=True)
-
-        return whole_df, metadata
+        return whole_df
 
     def filtered_df(self, identity: float = 60.0, query_cov: float = 50.0) -> pd.DataFrame:
         """
@@ -390,7 +444,10 @@ class BlastResponse:
         if indexes is None:
             indexes = self.df['id']
 
-        return self.whole_df.iloc[indexes].apply(lambda row: Alignment(row, self.program).align(), axis=1)
+        substitution_matrix = self.metadata['params'].get('matrix', 'BLOSUM62')
+
+        return self.whole_df.iloc[indexes].apply(
+            lambda row: Alignment(row, self.program, substitution_matrix).align(), axis=1)
 
     def plot_alignments_bokeh(self, indexes: pd.Series, height: int = None, max_hits: int = 100, sort_by=None):
         """
@@ -421,10 +478,7 @@ class BlastResponse:
 
         # All the indexes have the same query, thus the same query len
         query_title = self.df.iloc[indexes.iloc[0]].query_title
-        for query in self.metadata['queries']:
-            if query['query_title'] == query_title:
-                query_len = query['query_len']
-                break
+        query_len = self.df.iloc[indexes.iloc[0]].query_len
 
         rows = self.df.iloc[indexes]
         rows.insert(0, 'table_row_index', value=indexes.index + 1)
@@ -432,14 +486,14 @@ class BlastResponse:
         rows = rows.sort_values(by=sort_by, inplace=False, ascending=[True, False])
         rows = rows[:max_hits]
 
-        # Width is +1 because query_from starts at 1 and not at 0, meaning that if query_from = 1 and query_to = 10
+        # Width is +1 because query_start starts at 1 and not at 0, meaning that if query_start = 1 and query_end = 10
         # the width is 10 but 10-1=9. For the same reason the x coordinate is +0.5 because it is the middle of the
         # rectangle
         rows.insert(0, 'graph_index', value=range(1, len(rows) + 1))
         rows.set_index('graph_index', inplace=True)
-        rows.insert(0, 'x', value=(rows['query_to'] - rows['query_from']) / 2 + 0.5)
+        rows.insert(0, 'x', value=(rows['query_end'] - rows['query_start']) / 2 + 0.5)
         rows.insert(0, 'y', value=len(rows) - rows.index)
-        rows.insert(0, 'width', value=rows['query_to'] - rows['query_from'] + 1)
+        rows.insert(0, 'width', value=rows['query_end'] - rows['query_start'] + 1)
         rows.insert(0, 'height', value=0.8)
         rows.insert(0, 'fill_color', value=rows['perc_identity'].apply(get_color))
 
@@ -496,10 +550,10 @@ class BlastResponse:
             ("Perc Identity", "@perc_identity"),
             ("Perc Alignment", "@perc_alignment"),
             ("Evalue", "@evalue"),
-            ("Seq start", "@hit_from"),
-            ("Seq end", "@hit_to"),
-            ("Query start", "@query_from"),
-            ("Query end", "@query_to"),
+            # ("Seq start", "@seq_start"),
+            # ("Seq end", "@seq_end"),
+            # ("Query start", "@query_start"),
+            # ("Query end", "@query_end"),
             ("Alignment length", "@width"),
         ]
 
@@ -551,11 +605,12 @@ class BlastResponse:
 
 
 @st.cache_data(show_spinner=False)
-def load_analysis(json_path: Path) -> BlastResponse:
+def load_analysis(file: Path, params=None) -> BlastParser:
     """
-    Placing the loading in a separate function allows streamlit (st) to cache the data
-    :param json_path:
+    Load analysis from file
+    :param file: analysis to load
+    :param params: Additional parameters of the blast analysis. They overwrite the ones found in the file, if any
     :return:
     """
 
-    return BlastResponse(json_file=json_path)
+    return BlastParser(file=file, params=params)
