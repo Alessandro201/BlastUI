@@ -469,8 +469,18 @@ def set_advanced_options(container=None, blast_mode=None):
 
     row3 = container.container()
     with row3:
-        options['user_custom_commands'] = st.text_area('Insert additional commands:', height=50,
-                                                       placeholder='Example: -strand both -ungapped ...')
+        user_custom_commands = st.text_area('Insert additional commands or overwrite existing ones:', height=50,
+                                            placeholder='Example: -strand both -ungapped ...')
+        user_custom_commands = shlex.split(user_custom_commands)
+        print(user_custom_commands)
+        options['user_custom_commands'] = ''
+        for index, item in enumerate(user_custom_commands):
+            if item.startswith('-'):
+                # if the next item is another option, then it is a flag
+                if user_custom_commands[index + 1].startswith('-'):
+                    options['user_custom_commands'] += item + ' '
+                else:
+                    options[item[1:]] = user_custom_commands[index + 1]
 
     st.session_state.advanced_options = options
 
