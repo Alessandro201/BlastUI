@@ -580,16 +580,13 @@ def main():
         st.stop()
 
     ###### BLAST MODE ######
-    DEFAULT_BLAST_MODE = 'BLASTN'
     blast_modes = ["BLASTN", "BLASTP", "BLASTX", 'TBLASTN', 'TBLASTX']
     icons = ['list-task', 'list-task', "list-task", 'list-task', 'list-task']
+    DEFAULT_BLAST_MODE = 'BLASTN'
+    default_index = blast_modes.index(DEFAULT_BLAST_MODE)
 
-    if 'blast_mode' in st.session_state:
-        default = blast_modes.index(st.session_state.blast_mode.upper())
-    else:
-        default = blast_modes.index(DEFAULT_BLAST_MODE)
     st.session_state.blast_mode = option_menu('', options=blast_modes, icons=icons, menu_icon="gear",
-                                              default_index=default, orientation="horizontal").lower()
+                                              default_index=default_index, orientation="horizontal").lower()
 
     ###### QUERY ######
     query = st.text_area('Insert the queries: ', placeholder="Query...", height=200).strip()
@@ -620,7 +617,6 @@ def main():
     if 'command_to_run' in st.session_state:
         command = st.session_state['command_to_run']
         p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print('Process started with pid: ', p.pid)
         st.session_state['process_pid'] = p.pid
         st.session_state['process'] = p
 
