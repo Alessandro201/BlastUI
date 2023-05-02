@@ -15,6 +15,7 @@ from streamlit_extras.switch_page_button import switch_page
 
 from scripts.blast_parser import load_analysis, EmptyCSVError
 from scripts import utils
+from collections import defaultdict
 import subprocess
 
 import psutil
