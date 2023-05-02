@@ -70,17 +70,19 @@ def kill_process_group(procid):
     Terminate a process and all its children, if some fails it kills them.
     """
 
-    print(f'Killing process {procid} and its children')
-    parent = psutil.Process(procid)
+    try:
+        parent = psutil.Process(procid)
 
     childrens = parent.children(recursive=True)
     for child in childrens:
         child.terminate()
     parent.terminate()
 
-    gone, alive = psutil.wait_procs(childrens + [parent], timeout=3)
-    for proc in alive:
-        proc.kill()
+        gone, alive = psutil.wait_procs(childrens + [parent], timeout=3)
+        for proc in alive:
+            proc.kill()
+    except psutil.NoSuchProcess as e:
+        print(f'kill_process_group raised: NoSuchProcess{e}.')
 
 
 def choose_database(container=None):
@@ -150,18 +152,53 @@ def duplicated_headers(query: str) -> list | None:
     headers = set()
     dup_headers = list()
 
-    for line in query.strip().splitlines():
+    for line in query.splitlines():
         # Blank lines
         if len(line) == 0:
             continue
 
+        line = line.strip()
+
         if line[0] == '>':
+            # Remove the '>' from the header and remove leading and trailing whitespaces
+            # Example: ">   header1" --> "header1"
+            line = line[1:].strip()
+
             if line in headers:
                 dup_headers.append(line)
             else:
                 headers.add(line)
 
     return dup_headers if dup_headers else None
+
+
+def duplicated_sequences(query: str) -> dict | None:
+    """
+    This function checks if the query has duplicated sequences.
+
+    :param query: the query to be checked
+    :return: The duplicated headers, None otherwise
+    """
+
+    seqs = defaultdict(list)
+
+    queries = query.strip().split('>')
+
+    for query in queries:
+        # Blank lines
+        if len(query) == 0:
+            continue
+
+        header, seq = query.split('\n', maxsplit=1)
+
+        # Remove new lines to avoid missing identical sequences with different new lines in the middle
+        seq = seq.replace('\n', '')
+
+        seqs[seq].append(header)
+
+    dup_seqs = {seq: headers for seq, headers in seqs.items() if len(headers) > 1}
+
+    return dup_seqs if dup_seqs else None
 
 
 def set_advanced_options(container=None, blast_mode=None):
@@ -472,7 +509,6 @@ def set_advanced_options(container=None, blast_mode=None):
         user_custom_commands = st.text_area('Insert additional commands or overwrite existing ones:', height=50,
                                             placeholder='Example: -strand both -ungapped ...')
         user_custom_commands = shlex.split(user_custom_commands)
-        print(user_custom_commands)
         options['user_custom_commands'] = ''
         for index, item in enumerate(user_custom_commands):
             if item.startswith('-'):
@@ -603,8 +639,18 @@ def main():
             st.stop()
 
         if headers := duplicated_headers(st.session_state['query']):
-            for h in headers:
-                st.warning(f'The following headers is present more than one time: {h}')
+            if len(headers) > 1:
+                headers = ' \n- '.join(headers)
+            else:
+                # Get a random element from the set, which is the only element
+                headers = headers.pop()
+            st.warning(f'The following headers are present more than one time: \n- {headers}')
+            st.stop()
+
+        if duplicates := duplicated_sequences(st.session_state['query']):
+            for seq, headers in duplicates.items():
+                headers = ' \n- '.join(headers)
+                st.warning(f'The following sequences are identical: \n- {headers}')
             st.stop()
 
         st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
@@ -629,27 +675,14 @@ def main():
             st.experimental_rerun()
 
         if proc.poll():
-            return_code = proc.returncode
-            print(f'Process already stopped with return code: {return_code}')
             st.info('Process already stopped')
 
         else:
             proc = st.session_state['process']
 
-            # Terminating or killing the process WILL FAIL leaving it running in the background, but after calling
-            # communicate() the process will be terminated and the return code will be set.
-            #
-            # Following the subprocess.Popen documentation:
-            #
-            # "...in order to cleanup properly a well-behaved application should kill the child process
-            # and finish communication..."
-            #
-            # proc = subprocess.Popen(...)
-            # try:
-            #     outs, errs = proc.communicate(timeout=15)
-            # except TimeoutExpired:
-            #     proc.kill()
-            #     outs, errs = proc.communicate()
+            # A well-behaved application should finish communicating after it's killed to consume the output.
+            print(f'INSIDE MAIN - Terminating process with pid: {process_pid}')
+
             kill_process_group(procid=process_pid)
             proc.communicate()
 
@@ -687,13 +720,13 @@ def main():
 
                 if 'BLAST Database error: No alias or index file found for nucleotide database' in stderr:
                     st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
-                            f'which requires a nucleotide database, but ***{Path(st.session_state["db"]).parent.name}*** '
-                            f'is a protein one.')
+                            f'which requires a nucleotide database, but '
+                            f'***{Path(st.session_state["db"]).parent.name}*** is a protein one.')
                 elif 'BLAST Database error: No alias or index file found for protein database' in stderr:
                     st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
                             f'which requires a protein database, but ***{Path(st.session_state["db"]).parent.name}*** '
                             f'is a nucleotide one.')
-                elif "there's a line that doesn't look like plausible data, but it's not marked as defline or comment." in stderr:
+                elif "there's a line that doesn't look like plausible data, but it's not marked as defline" in stderr:
                     st.info(f"Error parsing blast results. It's likely that there is a wrong character "
                             f"in the query that BLAST does not know how to interpret. "
                             f"Please check the query and try again.")
@@ -726,15 +759,14 @@ def main():
         blast_parser = st.session_state.blast_parser
 
         # Check whether any query did not produce any hits
-        warnings = list()
+        zero_hit_queries = list()
         for query in blast_parser.queries:
-            print(query)
             query_title = query['query_title']
             hits = query['hits']
             if hits == 0:
-                warnings.append(f'No hits found for query: *{query_title}*')
+                zero_hit_queries.append(query_title)
 
-        if not warnings:
+        if not zero_hit_queries:
             st.session_state.switch_to_result_page = False
             switch_page('Results')
 
@@ -742,8 +774,8 @@ def main():
             st.session_state.switch_to_result_page = False
             switch_page('Results')
 
-        for message in warnings:
-            st.info(message)
+        for query_title in zero_hit_queries:
+            st.info(f'No hits found for query: \\\n*{query_title}*')
 
 
 if __name__ == "__main__":
