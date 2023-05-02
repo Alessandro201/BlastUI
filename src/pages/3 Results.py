@@ -378,7 +378,7 @@ def show_table():
         alignments = blast_parser.alignments(indexes=indexes)
 
         if row_indexes:
-            st.subheader(f"Showing alignments for {len(row_indexes)} selected rows")
+            st.subheader(f"Showing alignments for the selected rows")
 
         whole_df = blast_parser.whole_df
         for row, selected_json_index, alignment in zip(row_indexes, indexes, alignments):
@@ -500,19 +500,20 @@ def show_about():
             file_name='query.fasta',
             mime='text/fasta')
 
-        for index, query in enumerate(blast_parser.metadata['queries']):
+        for index, query in enumerate(blast_parser.queries):
+            header, seq = query_seqs[index].split('\n', maxsplit=1)
+            seq = seq.replace('\n', '').strip()
+            query_len = len(seq)
+
             st.markdown(f"""
             #### Query {index + 1}:
             **Query title**: {query['query_title']}\n
-            **Query length**: {query['query_len']}""")
+            **Hits**: {query['hits']}\n
+            **Query length**: {query_len}\n""")
 
-            if query['query_len'] < 1000:
-                header, seq = query_seqs[index].split('\n', maxsplit=1)
-
-                seq = seq.replace('\n', '')
+            if query_len < 1000:
+                # Split into lines of 60 characters
                 seq = '\n'.join([seq[i:i + 60] for i in range(0, len(seq), 60)])
-
-                st.markdown(f"""**Sequence**:""")
                 st.code(f">{header}\n{seq}")
             else:
                 st.markdown('*The sequence is too long to be shown here. You can download it instead*')

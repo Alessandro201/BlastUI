@@ -234,7 +234,7 @@ class Alignment:
         """
         Get midline between query and alignment to know which residues are the same and which are different.
         """
-        
+
         midline = []
 
         if self.program == 'blastn':
@@ -324,14 +324,6 @@ class BlastParser:
 
         self.whole_df: pd.DataFrame = self._parse_csv()
 
-        queries_df = self.whole_df.drop_duplicates(subset=['query_title', 'query_len'])
-        for row in queries_df.itertuples():
-
-            for index, query in enumerate(self.queries):
-                if query['query_title'] == row.query_title:
-                    self.queries[index]['query_len'] = row.query_len
-                    break
-
     @property
     def df(self):
         """
@@ -349,9 +341,9 @@ class BlastParser:
         blast_program = 'blastn'
         version = ''
         database = ''
-        fields = ''
+        # fields = ''
         params = dict()
-        queries = list()
+        query_titles = list()
         hits_found = list()
 
         with open(self.file, 'r', encoding='utf8') as f:
@@ -377,26 +369,32 @@ class BlastParser:
                         case r'# (BLASTN|BLASTP|BLASTX|TBLASTN|TBLASTX) (\d+\.\d+.\d+\++)\n' as m:
                             blast_program, version = m[1], m[2]
                         case r'# Query: (.+)\n' as m:
-                            queries.append(m[1])
+                            query_titles.append(m[1])
                         case r'# Database: (.+)\n' as m:
                             database = m[1]
-                        case r'# Fields: (.+)\n' as m:
-                            fields = m[1]
+                        # case r'# Fields: (.+)\n' as m:
+                        #     fields = m[1]
                         case r'# (\d+) hits found' as m:
                             hits_found.append(m[1])
                         case '_':
                             pass
 
-        queries_dict = list()
-        for query, hits in zip(queries, hits_found):
-            print(query, hits)
-            queries_dict.append({'query_title': query, 'hits': int(hits)})
+        if len(query_titles) != len(hits_found):
+            raise ValueError(f'Number of queries ({len(query_titles)}) is not equal to number of '
+                             f'hits found ({len(hits_found)}). There is an error in the blast result file.')
+
+        queries = list()
+        for query_title, hits in zip(query_titles, hits_found):
+            queries.append({
+                'query_title': query_title,
+                'hits': int(hits),
+            })
 
         metadata = {
             'program': blast_program.lower(),
             'version': version,
             'blast_db': database,
-            'queries': queries_dict,
+            'queries': queries,
             'params': params,
         }
 
