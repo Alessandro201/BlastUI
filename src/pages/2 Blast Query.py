@@ -74,10 +74,10 @@ def kill_process_group(procid):
     try:
         parent = psutil.Process(procid)
 
-    childrens = parent.children(recursive=True)
-    for child in childrens:
-        child.terminate()
-    parent.terminate()
+        childrens = parent.children(recursive=True)
+        for child in childrens:
+            child.terminate()
+        parent.terminate()
 
         gone, alive = psutil.wait_procs(childrens + [parent], timeout=3)
         for proc in alive:
@@ -550,6 +550,7 @@ def sidebar_options():
         def clear_analysis_folder():
             for file in Path('./Analysis').iterdir():
                 file.unlink()
+
             st.session_state['analysis_folder_cleared'] = True
 
         st.sidebar.button('Confirm', on_click=clear_analysis_folder)
@@ -577,6 +578,7 @@ def main():
         st.error('Could not find BLAST. Please download it in the home section.')
         if st.button('Go to home'):
             switch_page('Home')
+
         st.stop()
 
     ###### BLAST MODE ######
@@ -736,12 +738,14 @@ def main():
         del st.session_state['process']
 
         with st.spinner('Parsing results...'):
+
             blast_output_file = st.session_state['blast_output_file']
             write_metadata(blast_output_file, st.session_state['advanced_options'])
 
             try:
                 st.session_state['blast_parser'] = load_analysis(blast_output_file)
             except EmptyCSVError:
+
                 st.error(f"The analysis did not produce any result. No matches were found.")
                 st.stop()
 
