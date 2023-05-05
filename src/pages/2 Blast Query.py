@@ -7,19 +7,21 @@ sys.path.append(str(Path(__file__).parent))
 import shlex
 from io import StringIO, BytesIO
 from multiprocessing import cpu_count
-from datetime import datetime
-from subprocess import CalledProcessError
+from datetime import datetime, timedelta
 
 import streamlit as st
 from streamlit_option_menu import option_menu
 from streamlit_extras.switch_page_button import switch_page
 
-from scripts.blast_response import load_analysis
+from scripts.blast_parser import load_analysis, EmptyCSVError
 from scripts import utils
+from collections import defaultdict
+import subprocess
+
+import psutil
 
 
-@st.cache_data(show_spinner=False)
-def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs) -> Path:
+def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs):
     """
     This function runs the blast command and returns the results as a dictionary.
     """
@@ -35,26 +37,53 @@ def blast(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, 
 
         additional_params += f' -{key} {value}'
 
+    # Find a file name for query and result that doesn't exist
     today = datetime.today()
-    today_time = today.strftime("%Y%m%d_%H%M%S")
+    query_file = f'./Analysis/{today:%Y%m%d_%H%M%S}_query.fasta'
+    while Path(query_file).exists():
+        today = (today + timedelta(seconds=1))
+        query_file = f'./Analysis/{today:%Y%m%d_%H%M%S}_query.fasta'
+
+    out_file = Path(f'./Analysis/{today:%Y%m%d_%H%M%S}_results.tsv')
 
     # Write query to file to be used by blast. If it doesn't have a header add it
-    query_file = f'./Analysis/{today_time}_query.fasta'
     query = query.strip()
     if query[0] != '>':
         query = '>Query_1\n' + query
+
+    # Write query to file
     Path(query_file).parent.mkdir(parents=True, exist_ok=True)
     Path(query_file).write_text(query)
 
-    out_file = Path(f'./Analysis/{today_time}_results.json')
-
     blast_exec = st.session_state['blast_exec']
+    outfmt = "7 qaccver saccver nident pident qlen length qcovhsp gaps gapopen " \
+             "mismatch positive ppos qstart qend sstart send qframe sframe score " \
+             "evalue bitscore qseq sseq"
 
-    cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt 15 '
+    cmd = shlex.split(f'"{blast_exec[blast_mode]}" -query "{query_file}" -db "{db}" -outfmt "{outfmt}" '
                       f'-out "{out_file}" -num_threads {threads} {additional_params}')
 
-    utils.run_command(cmd)
-    return out_file
+    return out_file, cmd
+
+
+def kill_process_group(procid):
+    """
+    Terminate a process and all its children, if some fails it kills them.
+    """
+
+    try:
+        parent = psutil.Process(procid)
+
+        childrens = parent.children(recursive=True)
+        for child in childrens:
+            child.terminate()
+        parent.terminate()
+
+        gone, alive = psutil.wait_procs(childrens + [parent], timeout=3)
+        for proc in alive:
+            proc.kill()
+    except psutil.NoSuchProcess as e:
+        print(f'kill_process_group raised: NoSuchProcess{e}.')
 
 
 def choose_database(container=None):
@@ -80,6 +109,21 @@ def choose_database(container=None):
     return None
 
 
+def write_metadata(file: Path | str, metadata: dict):
+    """
+    This function writes the metadata to the output file of BLAST to preserve the params of the search.
+    :param file: the file to write the metadata to
+    :param metadata: the metadata to be written
+    """
+
+    file = Path(file)
+    with open(file, 'a') as f:
+        f.write("# [PARAMS]\n")
+        for key, value in metadata.items():
+            f.write(f'# {key}:{value}\n')
+        f.write("# [END PARAMS]\n")
+
+
 def read_query(uploaded_files: list[BytesIO]) -> str:
     """
     This function reads the query from the uploaded files and returns it as a string.
@@ -96,6 +140,66 @@ def read_query(uploaded_files: list[BytesIO]) -> str:
         queries.append(query)
 
     return '\n'.join(queries)
+
+
+def duplicated_headers(query: str) -> list | None:
+    """
+    This function checks if the query has duplicated headers.
+
+    :param query: the query to be checked
+    :return: The duplicated headers, None otherwise
+    """
+
+    headers = set()
+    dup_headers = list()
+
+    for line in query.splitlines():
+        # Blank lines
+        if len(line) == 0:
+            continue
+
+        line = line.strip()
+
+        if line[0] == '>':
+            # Remove the '>' from the header and remove leading and trailing whitespaces
+            # Example: ">   header1" --> "header1"
+            line = line[1:].strip()
+
+            if line in headers:
+                dup_headers.append(line)
+            else:
+                headers.add(line)
+
+    return dup_headers if dup_headers else None
+
+
+def duplicated_sequences(query: str) -> dict | None:
+    """
+    This function checks if the query has duplicated sequences.
+
+    :param query: the query to be checked
+    :return: The duplicated headers, None otherwise
+    """
+
+    seqs = defaultdict(list)
+
+    queries = query.strip().split('>')
+
+    for query in queries:
+        # Blank lines
+        if len(query) == 0:
+            continue
+
+        header, seq = query.split('\n', maxsplit=1)
+
+        # Remove new lines to avoid missing identical sequences with different new lines in the middle
+        seq = seq.replace('\n', '')
+
+        seqs[seq].append(header)
+
+    dup_seqs = {seq: headers for seq, headers in seqs.items() if len(headers) > 1}
+
+    return dup_seqs if dup_seqs else None
 
 
 def set_advanced_options(container=None, blast_mode=None):
@@ -338,7 +442,7 @@ def set_advanced_options(container=None, blast_mode=None):
 
             options['matrix'] = st.selectbox('Matrix: ', options=matrixes, index=matrixes.index('BLOSUM62'))
 
-            if not options['matrix'] in ('BLOSUM45', 'BLOSUM50', 'PAM30', 'PAM70', 'PAM250'):
+            if options['matrix'] not in ('BLOSUM45', 'BLOSUM50', 'PAM30', 'PAM70', 'PAM250'):
                 gap_penalty = ['Existence: 11 Extension: 2', 'Existence: 10 Extension: 2', 'Existence: 9 Extension: 2',
                                'Existence: 8 Extension: 2', 'Existence: 7 Extension: 2', 'Existence: 6 Extension: 2',
                                'Existence: 13 Extension: 1', 'Existence: 12 Extension: 1', 'Existence: 11 Extension: 1',
@@ -403,8 +507,17 @@ def set_advanced_options(container=None, blast_mode=None):
 
     row3 = container.container()
     with row3:
-        options['user_custom_commands'] = st.text_area('Insert additional commands:', height=50,
-                                                       placeholder='Example: -strand both -ungapped ...')
+        user_custom_commands = st.text_area('Insert additional commands or overwrite existing ones:', height=50,
+                                            placeholder='Example: -strand both -ungapped ...')
+        user_custom_commands = shlex.split(user_custom_commands)
+        options['user_custom_commands'] = ''
+        for index, item in enumerate(user_custom_commands):
+            if item.startswith('-'):
+                # if the next item is another option, then it is a flag
+                if user_custom_commands[index + 1].startswith('-'):
+                    options['user_custom_commands'] += item + ' '
+                else:
+                    options[item[1:]] = user_custom_commands[index + 1]
 
     st.session_state.advanced_options = options
 
@@ -437,6 +550,7 @@ def sidebar_options():
         def clear_analysis_folder():
             for file in Path('./Analysis').iterdir():
                 file.unlink()
+
             st.session_state['analysis_folder_cleared'] = True
 
         st.sidebar.button('Confirm', on_click=clear_analysis_folder)
@@ -464,25 +578,24 @@ def main():
         st.error('Could not find BLAST. Please download it in the home section.')
         if st.button('Go to home'):
             switch_page('Home')
+
         st.stop()
 
     ###### BLAST MODE ######
-    DEFAULT_BLAST_MODE = 'BLASTN'
     blast_modes = ["BLASTN", "BLASTP", "BLASTX", 'TBLASTN', 'TBLASTX']
     icons = ['list-task', 'list-task', "list-task", 'list-task', 'list-task']
+    DEFAULT_BLAST_MODE = 'BLASTN'
+    default_index = blast_modes.index(DEFAULT_BLAST_MODE)
 
-    if 'blast_mode' in st.session_state:
-        default = blast_modes.index(st.session_state.blast_mode.upper())
-    else:
-        default = blast_modes.index(DEFAULT_BLAST_MODE)
     st.session_state.blast_mode = option_menu('', options=blast_modes, icons=icons, menu_icon="gear",
-                                              default_index=default, orientation="horizontal").lower()
+                                              default_index=default_index, orientation="horizontal").lower()
 
     ###### QUERY ######
     query = st.text_area('Insert the queries: ', placeholder="Query...", height=200).strip()
     st.session_state.query = query
 
-    uploaded_files = st.file_uploader("Alternatively upload queries in fasta format", type=["fasta", "faa"],
+    uploaded_files = st.file_uploader("Alternatively upload queries in fasta format",
+                                      type=["fasta", "faa"],
                                       accept_multiple_files=True)
     if uploaded_files:
         if st.session_state.query:
@@ -500,8 +613,20 @@ def main():
     exp = st.expander('⚙️ Advanced options', expanded=False)
     set_advanced_options(exp)
 
+    start_col, end_col, _ = st.columns([1, 1, 5])
+
+    ###### RUN BLAST COMMAND IF PRESENT ######
+    if 'command_to_run' in st.session_state:
+        command = st.session_state['command_to_run']
+        p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        st.session_state['process_pid'] = p.pid
+        st.session_state['process'] = p
+
+        del st.session_state['command_to_run']
+
     ###### BLAST ######
-    if st.button('Blast query'):
+    # Button disabled during blast process
+    if start_col.button('Blast query', disabled=bool(st.session_state.get('process_pid', False))):
         st.session_state.switch_to_result_page = False
 
         if 'db' not in st.session_state:
@@ -512,52 +637,146 @@ def main():
             st.warning('Please enter a query!')
             st.stop()
 
-        try:
-            with st.spinner(f"Running {st.session_state.blast_mode}..."):
-                st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
-
-                blast_output_file = blast(query=st.session_state['query'],
-                                          blast_mode=st.session_state['blast_mode'],
-                                          db=st.session_state['db'],
-                                          threads=st.session_state['threads'],
-                                          **st.session_state['advanced_options'])
-
-                st.session_state['blast_output_file'] = blast_output_file
-
-        except CalledProcessError as e:
-            stderr = e.stderr
-            st.error(f'Error running blast: {stderr}')
-
-            if 'BLAST Database error: No alias or index file found for nucleotide database' in stderr:
-                st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
-                        f'which requires a nucleotide database, but ***{Path(st.session_state["db"]).parent.name}*** '
-                        f'is a protein one.')
-            elif 'BLAST Database error: No alias or index file found for protein database' in stderr:
-                st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
-                        f'which requires a protein database, but ***{Path(st.session_state["db"]).parent.name}*** '
-                        f'is a nucleotide one.')
-
+        if headers := duplicated_headers(st.session_state['query']):
+            if len(headers) > 1:
+                headers = ' \n- '.join(headers)
+            else:
+                # Get a random element from the set, which is the only element
+                headers = headers.pop()
+            st.warning(f'The following headers are present more than one time: \n- {headers}')
             st.stop()
 
+        if duplicates := duplicated_sequences(st.session_state['query']):
+            for seq, headers in duplicates.items():
+                headers = ' \n- '.join(headers)
+                st.warning(f'The following sequences are identical: \n- {headers}')
+            st.stop()
+
+        st.markdown(f'Blast started at: {datetime.now():%d/%m/%Y %H:%M:%S}')
+
+        blast_output_file, command = prepare_for_blast_command(query=st.session_state['query'],
+                                                               blast_mode=st.session_state['blast_mode'],
+                                                               db=st.session_state['db'],
+                                                               threads=st.session_state['threads'],
+                                                               **st.session_state['advanced_options'])
+
+        # rerun to update button states and execute command
+        st.session_state['command_to_run'] = command
+        st.session_state['blast_output_file'] = blast_output_file
+        st.experimental_rerun()
+
+    # Button enabled during blast process
+    if end_col.button('Stop process', disabled=not bool(st.session_state.get('process_pid', False))):
+        process_pid = st.session_state.get('process_pid', None)
+        proc = st.session_state.get('process', None)
+
+        if not process_pid or not proc:
+            st.experimental_rerun()
+
+        if proc.poll():
+            st.info('Process already stopped')
+
+        else:
+            proc = st.session_state['process']
+
+            # A well-behaved application should finish communicating after it's killed to consume the output.
+            print(f'INSIDE MAIN - Terminating process with pid: {process_pid}')
+
+            kill_process_group(procid=process_pid)
+            proc.communicate()
+
+        del st.session_state['process_pid']
+        del st.session_state['process']
+        st.experimental_rerun()
+
+    # If the process is running, show the spinner and wait for the process to finish
+    process_pid = st.session_state.get('process_pid', None)
+    if process_pid and psutil.pid_exists(process_pid):
+
+        with st.spinner(f"Running {st.session_state.blast_mode}..."):
+            try:
+                # communicate() will wait until the process terminates
+                p = st.session_state['process']
+                out, err = p.communicate()
+
+                if p.returncode != 0:
+                    raise subprocess.CalledProcessError(p.returncode, p.args, output=out, stderr=err)
+
+                if err:
+                    lines = err.splitlines()
+                    if any('FASTA-Reader: Ignoring invalid residues at position(s):' in line for line in lines):
+                        st.warning(f'The analysis finished but some residues are invalid. '
+                                   f'Please check that you have selected the correct BLAST program: ')
+                    else:
+                        st.warning(f'The analysis finished but there were some errors: ')
+
+                    st.write(f"Showing last {20 if len(lines) > 20 else len(lines)} lines of error output:")
+                    st.code('\n'.join(lines[-20:]))
+
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr
+                st.error(f'Error running blast: {stderr}')
+
+                if 'BLAST Database error: No alias or index file found for nucleotide database' in stderr:
+                    st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
+                            f'which requires a nucleotide database, but '
+                            f'***{Path(st.session_state["db"]).parent.name}*** is a protein one.')
+                elif 'BLAST Database error: No alias or index file found for protein database' in stderr:
+                    st.info(f'It seems you were trying to do a ***{st.session_state["blast_mode"].upper()}*** '
+                            f'which requires a protein database, but ***{Path(st.session_state["db"]).parent.name}*** '
+                            f'is a nucleotide one.')
+                elif "there's a line that doesn't look like plausible data, but it's not marked as defline" in stderr:
+                    st.info(f"Error parsing blast results. It's likely that there is a wrong character "
+                            f"in the query that BLAST does not know how to interpret. "
+                            f"Please check the query and try again.")
+                else:
+                    raise e
+
+                st.stop()
+
+        del st.session_state['process_pid']
+        del st.session_state['process']
+
         with st.spinner('Parsing results...'):
-            st.session_state['blast_response'] = load_analysis(blast_output_file)
+
+            blast_output_file = st.session_state['blast_output_file']
+            write_metadata(blast_output_file, st.session_state['advanced_options'])
+
+            try:
+                st.session_state['blast_parser'] = load_analysis(blast_output_file)
+            except EmptyCSVError:
+
+                st.error(f"The analysis did not produce any result. No matches were found.")
+                st.stop()
 
         st.session_state['switch_to_result_page'] = True
 
+        # By rerunning the app, we can re-enable the blast query button, disable the stop process button
+        # and then switch to the results page
+        st.experimental_rerun()
+
     ##### SWITCH PAGE #####
     if st.session_state.get('switch_to_result_page', False):
-        blast_response = st.session_state.blast_response
+        blast_parser = st.session_state.blast_parser
 
-        if not blast_response.messages:
+        # Check whether any query did not produce any hits
+        zero_hit_queries = list()
+        for query in blast_parser.queries:
+            query_title = query['query_title']
+            hits = query['hits']
+            if hits == 0:
+                zero_hit_queries.append(query_title)
+
+        if not zero_hit_queries:
             st.session_state.switch_to_result_page = False
             switch_page('Results')
-
-        for message in blast_response.messages:
-            st.warning(message)
 
         if st.button('Go to results'):
             st.session_state.switch_to_result_page = False
             switch_page('Results')
+
+        for query_title in zero_hit_queries:
+            st.info(f'No hits found for query: \\\n*{query_title}*')
 
 
 if __name__ == "__main__":

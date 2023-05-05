@@ -1,17 +1,30 @@
 # BlastUI
+
 A graphical interface for BLAST to run queries against your own local sequences.
 
-From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi): 
-> The Basic Local Alignment Search Tool (BLAST) finds regions of local similarity between sequences. 
-The program compares nucleotide or protein sequences to sequence databases and calculates the 
-statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships 
-between sequences as well as help identify members of gene families. 
+From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi):
+> The Basic Local Alignment Search Tool (BLAST) finds regions of local similarity between sequences.
+> The program compares nucleotide or protein sequences to sequence databases and calculates the
+> statistical significance of matches. BLAST can be used to infer functional and evolutionary relationships
+> between sequences as well as help identify members of gene families.
 
 ## Features
+
 - Blast queries against your own sequences
 - Visualize the results, filter and aggregate them
 - Graphical summary of the alignments
 - Save the results as Excel or CSV files
+
+## Additional features
+
+- Save the hit sequences or the alignments
+- Find multiple hits from the same sequence
+
+## Next features
+
+- [ ] Auto update the app when a new version is available
+- [ ] Start the app on a server and perform blast searches remotely by logging in. I plan on having multiple users each
+  with their own analysis
 
 <br>
 <br>
@@ -25,37 +38,37 @@ between sequences as well as help identify members of gene families.
 
 ![immagine](https://user-images.githubusercontent.com/61567683/227254938-732ed1ac-27a5-4f04-a49e-186d47fb180c.png)
 
-
-The data used to produce the images is not the same in all of them. 
-
-## Additional features
-- Save the hit sequences or the alignments
-- Find multiple hits from the same sequence
+The data used to produce the images is not the same in all of them.
 
 ## Installation
+
 #### Conda
 
 ```
 git clone https://github.com/Alessandro201/BlastUI/
 conda env create -n BlastUI --file environment.yaml
 conda activate BlastUI
-
 ```
 
+#### Pip
+
 ## Quickstart
+
 ```
 python ./run_app.py
 ```
 
-## Development
 If you want to develop the app, you need to install pyinstaller to package it:
+
 ```
 pip install pyinstaller
 ```
 
 And once you're done, you can package the app with:
+
 ```
 pyinstaller --clean -y .\create_package.spec 
 ```
 
-Check that `./.streamlit`, `./pages` and `./scripts` folders are present in the top-level directory of the output otherwise the application won't work.
+Check that `./.streamlit`, `./pages` and `./scripts` folders are present in the top-level directory of the output
+otherwise the application won't work.

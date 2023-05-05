@@ -10,15 +10,13 @@ from scripts.utils import generate_xlsx_table
 def analyze(df, container):
     st.header('Strain with multiple hits for the same query')
 
-    blast_response = st.session_state.blast_response
-    queries = blast_response.queries
+    blast_parser = st.session_state.blast_parser
+    queries = blast_parser.queries
 
     no_results = True
     for query in queries:
         query_title = query['query_title']
-        query_id = query['query_id']
-
-        temp_df = df[df['query_id'] == query_id]
+        temp_df = df[df['query_title'] == query_title]
 
         v = temp_df['strain'].value_counts()
         dup = temp_df[temp_df['strain'].isin(v.index[v.gt(1)])]
@@ -44,19 +42,19 @@ def analyze(df, container):
 
 
 def __download_table_xlsx(df) -> bytes:
-    # Add hseq column to grid_df from blast_response.whole_df
-    whole_df = st.session_state.blast_response.whole_df
-    df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df_with_seqs = df_with_seqs.drop(columns=['id', 'query_id'])
+    # Add sseq column to grid_df from blast_parser.whole_df
+    whole_df = st.session_state.blast_parser.whole_df
+    df_with_seqs = pd.merge(df, whole_df[['id', 'sseq']], on=['id'], how='inner')
+    df_with_seqs = df_with_seqs.drop(columns=['id', 'query_title'])
 
     return generate_xlsx_table(df_with_seqs)
 
 
 def __download_table_csv(df) -> bytes:
-    # Add hseq column to grid_df from blast_response.whole_df
-    whole_df = st.session_state.blast_response.whole_df
-    df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
-    df_with_seqs = df_with_seqs.drop(columns=['id', 'query_id'])
+    # Add sseq column to grid_df from blast_parser.whole_df
+    whole_df = st.session_state.blast_parser.whole_df
+    df_with_seqs = pd.merge(df, whole_df[['id', 'sseq']], on=['id'], how='inner')
+    df_with_seqs = df_with_seqs.drop(columns=['id', 'query_title'])
 
     table_data: bytes = df_with_seqs.to_csv(index=False).encode('utf-8')
 
@@ -67,15 +65,15 @@ def __download_hit_sequences(df) -> bytes:
     def get_header(strain, node, query_title):
         return f">{strain}_NODE_{node};{query_title}"
 
-    whole_df: pd.DataFrame = st.session_state.blast_response.whole_df
+    whole_df: pd.DataFrame = st.session_state.blast_parser.whole_df
 
-    df_with_seqs = pd.merge(df, whole_df[['id', 'hseq']], on=['id'], how='inner')
+    df_with_seqs = pd.merge(df, whole_df[['id', 'sseq']], on=['id'], how='inner')
     df_with_seqs = df_with_seqs.drop(columns=['id'])
 
     df_with_seqs.insert(0, 'headers',
                         df_with_seqs[['strain', 'node', 'query_title']].apply(lambda x: get_header(*x), axis=1))
     headers: list[str] = df_with_seqs['headers'].to_list()
-    sequences: list[str] = df_with_seqs['hseq'].to_list()
+    sequences: list[str] = df_with_seqs['sseq'].to_list()
 
     lines = list()
     for header, sequence in zip(headers, sequences):
@@ -88,9 +86,9 @@ def __download_hit_sequences(df) -> bytes:
 
 
 def __download_all_alignments(df) -> bytes:
-    blast_response = st.session_state.blast_response
+    blast_parser = st.session_state.blast_parser
 
-    alignments = blast_response.alignments(indexes=df['id'])
+    alignments = blast_parser.alignments(indexes=df['id'])
     alignments = '\n\n\n\n'.join(alignments).encode('utf-8')
     return alignments
 
@@ -101,6 +99,7 @@ def __get_unique_keys(n=1) -> tuple:
     keys = set()
     while len(keys) < n:
         key = random.choices(ascii_letters, k=10)
+        key = ''.join(key)
         if key not in st.session_state.keys():
             keys.add(key)
 

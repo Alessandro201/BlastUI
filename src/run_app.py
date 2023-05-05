@@ -1,3 +1,4 @@
+import sys
 from multiprocessing import freeze_support
 from typing import Any, Dict, List, Optional
 
@@ -28,14 +29,10 @@ if __name__ == '__main__':
     # The first time that streamlit is run it print a hello message which has an emoji.
     # If the terminal is not configured to support emojis, it will throw an error, thus we need to configure it
     # to use utf-8 encoding.
-    import sys
-
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdin.reconfigure(encoding='utf-8')
 
     # Needed when you use multiprocessing/concurrent.futures modules and you package the app into an executable
     freeze_support()
 
-    # This function was created inside our streamlit framework -> streamlit.web.cli
-    # cli._main_run_cl(str(Path(cwd, 'Home.py')), 'streamlit run')
     run_streamlit('Home.py', 'streamlit run')
