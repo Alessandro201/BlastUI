@@ -58,8 +58,6 @@ conda activate BlastUI
 python ./run_app.py
 ```
 
-## Development
-
 If you want to develop the app, you need to install pyinstaller to package it:
 
 ```
