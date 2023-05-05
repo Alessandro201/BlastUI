@@ -1,6 +1,7 @@
 # Streamlit version: 1.21.0
 
 [global]
+developmentMode = false
 
 # By default, Streamlit checks if the Python watchdog module is available and, if not, prints a warning asking for you to install it. The watchdog module is not required, but highly recommended. It improves Streamlit's ability to detect changes to files in your filesystem.
 # If you'd like to turn off this warning, set this to True.
@@ -25,7 +26,7 @@ level = "info"
 
 # String format for logging messages. If logger.datetimeFormat is set, logger messages will default to `%(asctime)s.%(msecs)03d %(message)s`. See [Python's documentation](https://docs.python.org/2.6/library/logging.html#formatter-objects) for available attributes.
 # Default: "%(asctime)s %(message)s"
-messageFormat = "%(asctime)s %(message)s"
+messageFormat = "%(asctime)s.%(msecs)03d - %(name)s - %(processName)s - %(levelname)-8s - %(message)s"
 
 
 [client]
