@@ -1,24 +1,22 @@
+import shlex
+import subprocess
 import sys
+from collections import defaultdict
+from datetime import datetime, timedelta
+from io import StringIO, BytesIO
+from multiprocessing import cpu_count
 from pathlib import Path
+
+import psutil
+import streamlit as st
+from streamlit_extras.switch_page_button import switch_page
+from streamlit_option_menu import option_menu
 
 # Needed to search for scripts in the parent folder when using PyInstaller
 sys.path.append(str(Path(__file__).parent))
-
-import shlex
-from io import StringIO, BytesIO
-from multiprocessing import cpu_count
-from datetime import datetime, timedelta
-
-import streamlit as st
-from streamlit_option_menu import option_menu
-from streamlit_extras.switch_page_button import switch_page
-
 from scripts.blast_parser import load_analysis, EmptyCSVError
 from scripts import utils
-from collections import defaultdict
-import subprocess
 
-import psutil
 
 
 def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs):

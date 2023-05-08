@@ -1,25 +1,23 @@
-import sys
-from pathlib import Path, PurePath
-
-# Needed to search for scripts in the parent folder when using PyInstaller
-sys.path.append(str(Path(__file__).parent))
-
-import pandas as pd
-import os
 import base64
 import json
+import os
+import sys
+from io import BytesIO
+from pathlib import Path, PurePath
 
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
 from streamlit_extras.no_default_selectbox import selectbox as ndf_selectbox
 from streamlit_extras.switch_page_button import switch_page
 
+# Needed to search for scripts in the parent folder when using PyInstaller
+sys.path.append(str(Path(__file__).parent))
+
 from scripts.blast_parser import load_analysis, BlastParser, EmptyCSVError
 from scripts import utils
 from scripts.analysis import find_strain_with_multiple_hits, find_alignments_with_stop_codons
-
-from io import BytesIO
 
 
 def download_table_xlsx():

@@ -1,25 +1,22 @@
+import base64
+import json
+import os
 import sys
+from io import BytesIO
+from math import ceil
 from pathlib import Path, PurePath
+from typing import Union
+
+import pandas as pd
+import streamlit as st
+from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
+from streamlit_extras.switch_page_button import switch_page
+import streamlit.components.v1 as components
 
 # Needed to search for scripts in the parent folder when using PyInstaller
 sys.path.append(str(Path(__file__).parent))
-
-import pandas as pd
-import os
-import base64
-import json
-from math import ceil
-from typing import Union
-
-import streamlit as st
-import streamlit.components.v1 as components
-from st_aggrid import GridOptionsBuilder, AgGrid, DataReturnMode, ColumnsAutoSizeMode
-from streamlit_extras.switch_page_button import switch_page
-
-from scripts.blast_parser import load_analysis, BlastParser
 from scripts import utils
-
-from io import BytesIO
+from scripts.blast_parser import load_analysis, BlastParser, EmptyCSVError
 
 
 def extract_indexes(selected: list):
