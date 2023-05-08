@@ -505,8 +505,14 @@ def show_about():
             st.markdown(f"""
             #### Query {index + 1}:
             **Query title**: {query['query_title']}\n
-            **Hits**: {query['hits']}\n
             **Query length**: {query_len}\n""")
+
+            if query['hits'] == 0:
+                st.warning('No hits found for this query')
+            else:
+                st.markdown(f"""
+                **Hits**: {query['hits']}\n
+                """)
 
             if query_len < 1000:
                 # Split into lines of 60 characters

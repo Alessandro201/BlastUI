@@ -18,7 +18,6 @@ from scripts.blast_parser import load_analysis, EmptyCSVError
 from scripts import utils
 
 
-
 def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs):
     """
     This function runs the blast command and returns the results as a dictionary.
@@ -117,8 +116,11 @@ def write_metadata(file: Path | str, metadata: dict):
     file = Path(file)
     with open(file, 'a') as f:
         f.write("# [PARAMS]\n")
+        f.write(f"# database:{st.session_state['db'].parent.name}\n")
+
         for key, value in metadata.items():
             f.write(f'# {key}:{value}\n')
+
         f.write("# [END PARAMS]\n")
 
 
