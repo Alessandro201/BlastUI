@@ -34,47 +34,56 @@ def extract_indexes(selected: list):
 
 
 def download_table_xlsx():
+    whole_df = st.session_state.blast_parser.whole_df
     grid_df: pd.DataFrame = st.session_state['grid_df']
+
     if grid_df.empty:
-        return 'No rows to show'.encode('utf-8')
+        st.warning('No rows to show')
 
     # Add sseq column to grid_df from blast_parser.whole_df
-    whole_df = st.session_state.blast_parser.whole_df
     df = pd.merge(grid_df, whole_df[['id', 'sseq']], on=['id'], how='inner')
 
-    filename = 'blast.xlsx'
     data = utils.generate_xlsx_table(df)
-    components.html(html_download(data, filename), height=None, width=None)
+    filename = 'blast.xlsx'
+
+    # download_component_container points to an empty container at the end of the page that is used to
+    # contain the component to download the file. Otherwise, the component would be rendered at the top shifting
+    # all the page down (EVEN with height=0) and streamlit would then reload the page to reset it.
+    with st.session_state['download_component_container']:
+        components.html(html_download(data, filename), height=0)
 
 
 def download_table_csv():
+    whole_df = st.session_state.blast_parser.whole_df
     grid_df: pd.DataFrame = st.session_state['grid_df']
+
     if grid_df.empty:
-        return 'No rows to show'.encode('utf-8')
+        st.warning('No rows to show')
 
     # Add sseq column to grid_df from blast_parser.whole_df
-    whole_df = st.session_state.blast_parser.whole_df
     df = pd.merge(grid_df, whole_df[['id', 'sseq']], on=['id'], how='inner')
 
-    table_data: bytes = df.to_csv(index=False).encode('utf-8')
-
+    data: bytes = df.to_csv(index=False).encode('utf-8')
     filename = 'blast.tsv'
-    components.html(html_download(table_data, filename), height=None, width=None)
+
+    # download_component_container points to an empty container at the end of the page that is used to
+    # contain the component to download the file. Otherwise, the component would be rendered at the top shifting
+    # all the page down (EVEN with height=0) and streamlit would then reload the page to reset it.
+    with st.session_state['download_component_container']:
+        components.html(html_download(data, filename), height=0)
 
 
 def download_hit_sequences():
     def get_header(strain, node, query_title):
         return f">{strain}_NODE_{node};{query_title}"
 
-    grid_df: pd.DataFrame = st.session_state.grid_df
     whole_df: pd.DataFrame = st.session_state.blast_parser.whole_df
+    grid_df: pd.DataFrame = st.session_state.grid_df
 
     if grid_df.empty:
-        return 'No rows to show'
+        st.warning('No rows to show')
 
     df = pd.merge(grid_df, whole_df[['id', 'sseq']], on=['id'], how='inner')
-    df = df.drop(columns=['id'])
-
     df.insert(0, 'headers', df[['strain', 'node', 'query_title']].apply(lambda x: get_header(*x), axis=1))
     headers: list[str] = df['headers'].to_list()
     sequences: list[str] = df['sseq'].to_list()
@@ -85,20 +94,32 @@ def download_hit_sequences():
         # Split the sequence in lines of 60 characters
         lines.append('\n'.join([sequence[i:i + 60] for i in range(0, len(sequence), 60)]))
 
-    lines = '\n'.join(lines).encode('utf-8')
+    data = '\n'.join(lines).encode('utf-8')
     filename = 'hits_sequences.fasta'
-    components.html(html_download(lines, filename), height=None, width=None)
+
+    # download_component_container points to an empty container at the end of the page that is used to
+    # contain the component to download the file. Otherwise, the component would be rendered at the top shifting
+    # all the page down (EVEN with height=0) and streamlit would then reload the page to reset it.
+    with st.session_state['download_component_container']:
+        components.html(html_download(data, filename), height=0)
 
 
 def download_all_alignments():
     grid_df = st.session_state.grid_df
     blast_parser = st.session_state.blast_parser
 
-    alignments = blast_parser.alignments(indexes=grid_df['id'])
-    alignments = '\n\n\n\n'.join(alignments).encode('utf-8')
+    if grid_df.empty:
+        st.warning('No alignments to download')
 
+    alignments = blast_parser.alignments(indexes=grid_df['id'])
+    data = '\n\n\n\n'.join(alignments).encode('utf-8')
     filename = 'alignments.txt'
-    components.html(html_download(alignments, filename), height=None, width=None)
+
+    # download_component_container points to an empty container at the end of the page that is used to
+    # contain the component to download the file. Otherwise, the component would be rendered at the top shifting
+    # all the page down (EVEN with height=0) and streamlit would then reload the page to reset it.
+    with st.session_state['download_component_container']:
+        components.html(html_download(data, filename), height=0)
 
 
 def html_download(object_to_download: Union[str, bytes], download_filename):
@@ -192,7 +213,7 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
     gb.configure_columns(['query_title', 'strain', 'node'], aggFunc='count')
     gb.configure_column('id', hide=True)
 
-    # Suppress the virtualisation of the columns. In this way the autosize of the column works as stated in the docs
+    # Suppress the virtualization of the columns. In this way the auto size of the column works as stated in the docs
     # https://www.ag-grid.com/javascript-data-grid/column-sizing/#auto-size-columns
     other_options = {'suppressColumnVirtualisation': True}
     gb.configure_grid_options(**other_options)
@@ -208,7 +229,7 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
     else:
         height = {'domLayout': 'autoHeight'}
 
-    # Define custom CSS
+    # Define custom CSS styling
     custom_css = {
         ".ag-row-hover": {
             "background-color": "#c84949 !important",
@@ -252,7 +273,7 @@ def load_aggrid_options(df: pd.DataFrame) -> AgGrid:
         'theme': 'streamlit',
         'allow_unsafe_jscode': True,
         'custom_css': custom_css,
-        'row_buffer': 20,
+        'row_buffer': 100,
         'enable_quicksearch': False
     }
 
@@ -407,7 +428,6 @@ def show_alignments():
         return
 
     grid_df = st.session_state['grid_df']
-
     if grid_df.empty:
         st.warning('No alignments to show')
         return
@@ -451,7 +471,6 @@ def show_graphic_summary():
         return
 
     grid_df = st.session_state['grid_df']
-
     if grid_df.empty:
         st.warning('No alignments to show')
         return
@@ -589,6 +608,8 @@ def main():
         show_about()
     else:
         raise ValueError('Invalid tab selected')
+
+    st.session_state['download_component_container'] = st.empty()
 
 
 if __name__ == "__main__":
