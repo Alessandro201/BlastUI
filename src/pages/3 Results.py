@@ -335,8 +335,9 @@ def choose_analysis_to_load() -> BlastParser | None:
             file_to_load = Path('./Analysis/') / file_to_load
             blast_parser = load_analysis(file_to_load)
 
-    except json.JSONDecodeError:
-        st.error('The selected file is not a valid JSON file! Probably the BLAST search did not finish correctly.')
+    except EmptyCSVError:
+        st.error('The selected file empty! '
+                 "\\\nIt's likely that the BLAST search did not finish correctly.")
         st.stop()
 
     return blast_parser
@@ -349,6 +350,10 @@ def show_table():
     st.subheader('Download:')
     download_container = st.empty()
     set_download_buttons(download_container)
+
+    if blast_parser.df.empty:
+        st.warning('No results found by BLAST!')
+        return
 
     if df.shape[0] > 50_000:
         st.warning(f'The table has {df.shape[0]} rows. The program may take a few seconds to '
@@ -397,6 +402,10 @@ def show_table():
 
 def show_alignments():
     blast_parser = st.session_state['blast_parser']
+    if blast_parser.df.empty:
+        st.warning('No results found by BLAST!')
+        return
+
     grid_df = st.session_state['grid_df']
 
     if grid_df.empty:
@@ -437,6 +446,10 @@ def show_alignments():
 
 def show_graphic_summary():
     blast_parser = st.session_state['blast_parser']
+    if blast_parser.df.empty:
+        st.warning('No results found by BLAST!')
+        return
+
     grid_df = st.session_state['grid_df']
 
     if grid_df.empty:
@@ -538,10 +551,6 @@ def main():
     blast_parser = choose_analysis_to_load()
     if not blast_parser:
         st.warning('No analysis done yet. Run BLAST first!')
-        st.stop()
-
-    if blast_parser.df.empty:
-        st.warning('No results found by BLAST!')
         st.stop()
 
     st.session_state['blast_parser'] = blast_parser
