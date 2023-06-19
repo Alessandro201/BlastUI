@@ -26,10 +26,7 @@ From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi):
 <br>
 <br>
 
-
-
 https://github.com/Alessandro201/BlastUI/assets/61567683/6b409c6d-38cb-428f-86cd-4c8f79f12485
-
 
 
 ![immagine](https://user-images.githubusercontent.com/61567683/227249073-3cb94f8e-e045-40be-8ff9-91de799537bb.png)
