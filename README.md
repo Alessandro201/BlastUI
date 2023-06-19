@@ -14,20 +14,22 @@ From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi):
 - Visualize the results, filter and aggregate them
 - Graphical summary of the alignments
 - Save the results as Excel or CSV files
-
-## Additional features
-
-- Save the hit sequences or the alignments
+- Add your own scripts to analyze the data
+- Save the hits sequences or the alignments
 - Find multiple hits from the same sequence
 
 ## Next features
 
 - [ ] Auto update the app when a new version is available
-- [ ] Start the app on a server and perform blast searches remotely by logging in. I plan on having multiple users each
-  with their own analysis
+- [ ] Right now you can run the program on a server and all the users in the network can access it and perform analysis. I plan on implementing the ability to let users log in, have their own sequences and queue queries so that many users can use the software at the same time
 
 <br>
 <br>
+
+
+
+https://github.com/Alessandro201/BlastUI/assets/61567683/6b409c6d-38cb-428f-86cd-4c8f79f12485
+
 
 
 ![immagine](https://user-images.githubusercontent.com/61567683/227249073-3cb94f8e-e045-40be-8ff9-91de799537bb.png)
@@ -38,7 +40,7 @@ From the [blast website](https://blast.ncbi.nlm.nih.gov/Blast.cgi):
 
 ![immagine](https://user-images.githubusercontent.com/61567683/227254938-732ed1ac-27a5-4f04-a49e-186d47fb180c.png)
 
-The data used to produce the images is not the same in all of them.
+> The data used to produce the images is not the same in all of them.
 
 ## Installation
 
@@ -50,15 +52,14 @@ conda env create -n BlastUI --file environment.yaml
 conda activate BlastUI
 ```
 
-#### Pip
-
-## Quickstart
-
+Launch the app with
 ```
 python ./run_app.py
 ```
 
-If you want to develop the app, you need to install pyinstaller to package it:
+## Contributing 
+
+If you want to package the app into an executable, you need to install pyinstaller to package it:
 
 ```
 pip install pyinstaller
