@@ -4,6 +4,8 @@ from sys import platform
 
 import altair
 import streamlit
+from PyInstaller.building.api import COLLECT, EXE, PYZ
+from PyInstaller.building.build_main import Analysis
 from PyInstaller.utils.hooks import collect_data_files
 
 APP_NAME = 'BlastUI'
@@ -12,19 +14,19 @@ VERSION = '1.0.0'
 datas = []
 datas += collect_data_files('st_aggrid')
 datas += collect_data_files('streamlit_option_menu')
-datas += collect_data_files('xyzservices')
 datas += collect_data_files('bokeh')
 datas += collect_data_files('st_keyup')
-datas += [('./media', './media')]
 datas += [
     (Path(altair.__path__[0], "vegalite/v4/schema/vega-lite-schema.json"), "./altair/vegalite/v4/schema/"),
     (Path(streamlit.__path__[0], "static"), "./streamlit/static"),
     (Path(streamlit.__path__[0], "runtime"), "./streamlit/runtime"),
+]
+datas += [
+    ('./media', './media'),
     ("./icon.png", "."),
 ]
 
 hidden_imports = [
-    'charset_normalizer.md__mypyc',
     "streamlit_extras.switch_page_button",
     "streamlit_extras.stoggle",
     "st_aggrid",
@@ -53,7 +55,7 @@ a = Analysis(
     hookspath=['./hooks'],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=scripts,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -90,7 +92,6 @@ exe = EXE(pyz,
 items_to_collect = list()
 for file in scripts:
     items_to_collect.append((file, Path(file).resolve(), 'DATA'))
-
 items_to_collect.append(('./.streamlit/config.toml', Path('./.streamlit/config.toml').resolve(), 'DATA'))
 
 coll = COLLECT(exe,
