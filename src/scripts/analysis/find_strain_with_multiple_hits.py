@@ -28,7 +28,7 @@ def analyze(df, container):
 
         container.subheader(query_title)
 
-        dup.sort_values(by=['strain'], inplace=True)
+        dup = dup.sort_values(by=['strain'])
 
         # The index is the row in grid_df shown in the table. The rows shown though add 1 to make it more readable.
         # We need to do the same here so the user can switch between the tables.
