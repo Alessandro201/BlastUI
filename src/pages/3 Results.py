@@ -427,7 +427,12 @@ def show_alignments():
         st.warning('No results found by BLAST!')
         return
 
-    grid_df = st.session_state['grid_df']
+    try:
+        grid_df = st.session_state['grid_df']
+    except KeyError:
+        st.warning('Something went wrong. Please reload the page.')
+        return
+
     if grid_df.empty:
         st.warning('No alignments to show')
         return
@@ -470,7 +475,12 @@ def show_graphic_summary():
         st.warning('No results found by BLAST!')
         return
 
-    grid_df = st.session_state['grid_df']
+    try:
+        grid_df = st.session_state['grid_df']
+    except KeyError:
+        st.warning('Something went wrong. Please reload the page.')
+        return
+
     if grid_df.empty:
         st.warning('No alignments to show')
         return
