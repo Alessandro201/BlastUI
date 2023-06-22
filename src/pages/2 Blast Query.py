@@ -1,24 +1,21 @@
+import shlex
+import subprocess
 import sys
+from collections import defaultdict
+from datetime import datetime, timedelta
+from io import StringIO, BytesIO
+from multiprocessing import cpu_count
 from pathlib import Path
+
+import psutil
+import streamlit as st
+from streamlit_extras.switch_page_button import switch_page
+from streamlit_option_menu import option_menu
 
 # Needed to search for scripts in the parent folder when using PyInstaller
 sys.path.append(str(Path(__file__).parent))
-
-import shlex
-from io import StringIO, BytesIO
-from multiprocessing import cpu_count
-from datetime import datetime, timedelta
-
-import streamlit as st
-from streamlit_option_menu import option_menu
-from streamlit_extras.switch_page_button import switch_page
-
 from scripts.blast_parser import load_analysis, EmptyCSVError
 from scripts import utils
-from collections import defaultdict
-import subprocess
-
-import psutil
 
 
 def prepare_for_blast_command(query: str, blast_mode: str, db: str, threads: int = cpu_count() / 2, **kwargs):
@@ -119,8 +116,11 @@ def write_metadata(file: Path | str, metadata: dict):
     file = Path(file)
     with open(file, 'a') as f:
         f.write("# [PARAMS]\n")
+        f.write(f"# database:{st.session_state['db'].parent.name}\n")
+
         for key, value in metadata.items():
             f.write(f'# {key}:{value}\n')
+
         f.write("# [END PARAMS]\n")
 
 
@@ -182,6 +182,10 @@ def duplicated_sequences(query: str) -> dict | None:
     """
 
     seqs = defaultdict(list)
+
+    query = query.strip()
+    if query[0] != '>':
+        query = '>Query_1\n' + query
 
     queries = query.strip().split('>')
 
@@ -613,7 +617,7 @@ def main():
     exp = st.expander('⚙️ Advanced options', expanded=False)
     set_advanced_options(exp)
 
-    start_col, end_col, _ = st.columns([1, 1, 5])
+    start_col, end_col, _ = st.columns([1, 1, 4])
 
     ###### RUN BLAST COMMAND IF PRESENT ######
     if 'command_to_run' in st.session_state:
@@ -621,12 +625,15 @@ def main():
         p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         st.session_state['process_pid'] = p.pid
         st.session_state['process'] = p
+        st.session_state["blast_start_time"] = datetime.now()
 
         del st.session_state['command_to_run']
 
     ###### BLAST ######
     # Button disabled during blast process
-    if start_col.button('Blast query', disabled=bool(st.session_state.get('process_pid', False))):
+    if start_col.button('Blast query',
+                        disabled=bool(st.session_state.get('process_pid', False)),
+                        use_container_width=True):
         st.session_state.switch_to_result_page = False
 
         if 'db' not in st.session_state:
@@ -666,7 +673,9 @@ def main():
         st.experimental_rerun()
 
     # Button enabled during blast process
-    if end_col.button('Stop process', disabled=not bool(st.session_state.get('process_pid', False))):
+    if end_col.button('Stop process',
+                      disabled=not bool(st.session_state.get('process_pid', False)),
+                      use_container_width=True):
         process_pid = st.session_state.get('process_pid', None)
         proc = st.session_state.get('process', None)
 
@@ -692,6 +701,10 @@ def main():
     # If the process is running, show the spinner and wait for the process to finish
     process_pid = st.session_state.get('process_pid', None)
     if process_pid and psutil.pid_exists(process_pid):
+
+        st.markdown(f"""
+        Blast started at: {st.session_state["blast_start_time"]:%Y-%m-%d %H:%M:%S}\n
+        """)
 
         with st.spinner(f"Running {st.session_state.blast_mode}..."):
             try:
@@ -749,6 +762,7 @@ def main():
                 st.error(f"The analysis did not produce any result. No matches were found.")
                 st.stop()
 
+        st.session_state["blast_end_time"] = datetime.now()
         st.session_state['switch_to_result_page'] = True
 
         # By rerunning the app, we can re-enable the blast query button, disable the stop process button
@@ -757,6 +771,15 @@ def main():
 
     ##### SWITCH PAGE #####
     if st.session_state.get('switch_to_result_page', False):
+
+        if 'blast_start_time' in st.session_state and 'blast_end_time' in st.session_state:
+            time_elapsed: timedelta = st.session_state["blast_end_time"] - st.session_state["blast_start_time"]
+            st.markdown(f"""
+            Blast started at: {st.session_state["blast_start_time"]:%Y-%m-%d %H:%M:%S}\n
+            Blast finished at: {st.session_state["blast_end_time"]:%Y-%m-%d %H:%M:%S}\n
+            Elapsed time: {utils.strfdelta(time_elapsed, "{H}h {M}m {S:02.0f}s")}
+            """)
+
         blast_parser = st.session_state.blast_parser
 
         # Check whether any query did not produce any hits
@@ -767,10 +790,7 @@ def main():
             if hits == 0:
                 zero_hit_queries.append(query_title)
 
-        if not zero_hit_queries:
-            st.session_state.switch_to_result_page = False
-            switch_page('Results')
-
+        st.markdown("""---""")
         if st.button('Go to results'):
             st.session_state.switch_to_result_page = False
             switch_page('Results')

@@ -315,6 +315,11 @@ class BlastParser:
         self.file: Path = Path(file)
         self.query_file: Path = Path(str(self.file.with_suffix('.fasta')).replace('_result', '_query'))
 
+        if self.file.stat().st_size == 0:
+            raise EmptyCSVError(f"CSV is empty: {self.file}")
+        elif self.file.suffix.lower() not in ('.tsv', '.csv'):
+            raise ValueError(f"File {self.file} is not a CSV file")
+
         self.metadata = self._read_metadata()
         self.program: str = self.metadata['program']
         self.queries: list = self.metadata['queries']
@@ -406,7 +411,7 @@ class BlastParser:
                                dtype=self.pd_columns_dtypes, names=list(self.pd_columns_dtypes.keys()))
 
         if whole_df.empty:
-            raise EmptyCSVError(f"CSV is empty: {self.file}")
+            return whole_df
 
         if '_NODE_' in whole_df['strain'].iloc[0]:
             strain_node_df = whole_df['strain'].str.split('_NODE_', expand=True, regex=False)
@@ -435,6 +440,9 @@ class BlastParser:
 
         if not 0 <= query_cov <= 100:
             raise ValueError(f"Query coverage must be between 0 and 100, not {query_cov}")
+
+        if self.df.empty:
+            return self.df
 
         return self.df[(self.df['perc_identity'] >= identity) & (self.df['perc_alignment'] >= query_cov)]
 

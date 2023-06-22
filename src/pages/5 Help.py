@@ -1,8 +1,11 @@
+import sys
 from io import BytesIO
 from pathlib import Path
 
 import streamlit as st
 
+# Needed to search for scripts in the parent folder when using PyInstaller
+sys.path.append(str(Path(__file__).parent))
 from scripts import utils
 
 
