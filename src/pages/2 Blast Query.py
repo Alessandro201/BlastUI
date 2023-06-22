@@ -183,6 +183,10 @@ def duplicated_sequences(query: str) -> dict | None:
 
     seqs = defaultdict(list)
 
+    query = query.strip()
+    if query[0] != '>':
+        query = '>Query_1\n' + query
+
     queries = query.strip().split('>')
 
     for query in queries:
