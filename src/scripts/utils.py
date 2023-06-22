@@ -186,6 +186,6 @@ def resource_path(relative_path='.') -> Path:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        base_path = str(Path(__file__).resolve().parent.parent)
 
     return Path(base_path, relative_path)
