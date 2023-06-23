@@ -190,4 +190,7 @@ class BlastDownloader:
                 # stat.S_IRWXG Mask for group permissions.
                 # stat.S_IRWXO Mask for permissions for others (not in group).
                 os.chmod(file, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-                file.unlink()
+                try:
+                    file.unlink()
+                except PermissionError:
+                    pass
