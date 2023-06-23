@@ -46,7 +46,7 @@ class BlastDownloader:
         self.md5filename, self.md5filesize = download_file_md5
 
         # Delete the ./bin folder to remove any old file inside it and recreate it.
-        self.download_folder = Path().cwd() / 'bin'
+        self.download_folder = Path(__file__).parent / 'bin'
         shutil.rmtree(self.download_folder, ignore_errors=True)
         self.download_folder.mkdir(parents=True, exist_ok=True)
 
